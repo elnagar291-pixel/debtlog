@@ -13,9 +13,10 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd)}.cust{cursor:pointer}.red{color:var(--red);font-weight:bold}.mut{color:var(--mut);font-size:13px}
 .soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
 .big{text-align:center}.num{font-size:26px;font-weight:bold}.gn{color:#15803d}.tile{display:flex;justify-content:space-between;align-items:center;font-size:18px;cursor:pointer}
+.sync{padding:5px 14px;font-size:13px;cursor:pointer;text-align:center}.sync.ok{background:rgba(21,128,61,.15);color:#15803d}.sync.wait{background:rgba(217,119,6,.18);color:#b45309}.sync.err{background:rgba(185,28,28,.15);color:#b91c1c}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}#msg{position:fixed;bottom:16px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
-<header><b onclick="home()" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header>
+<header><b onclick="home()" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header><div id="sync" class="sync" onclick="show(curV,true)"></div>
 <main id="app"><div class="card">
 <p>اتأكد إنك مدخل الـ Client ID في أول الكود (CONFIG).</p><button onclick="login()">تسجيل الدخول بحساب Microsoft</button></div></main>
 <div id="msg"></div>
@@ -48,8 +49,13 @@ async function g(path,opt={},retry=true){const t=await token(),h={Authorization:
 const rng=a=>"/worksheets('"+CONFIG.sheet+"')/range(address='"+a+"')";
 const put=(a,v)=>g(rng(a),{method:"PATCH",body:JSON.stringify({values:v})});
 // طابور الكتابة: التغيير بيظهر فورًا والحفظ في الشيت بيتم ورا الكواليس بالترتيب
-let q=Promise.resolve(),wgen=0;
-function enqueue(f){wgen++;q=q.then(f).catch(e=>{toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
+let q=Promise.resolve(),wgen=0,pend=0,lastSync=null,syncErr=false;
+function setSync(){const e=$("sync");if(!e)return;
+ if(pend>0){e.textContent="⏳ جاري الحفظ في الشيت...";e.className="sync wait"}
+ else if(syncErr){e.textContent="⚠ المزامنة فشلت، اضغط للمحاولة تاني";e.className="sync err"}
+ else if(lastSync){e.textContent="✔ تمت المزامنة · آخر تحديث "+lastSync.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});e.className="sync ok"}
+ else{e.textContent="";e.className="sync"}}
+function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync()}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
 async function load(force){if(!force)await q;const g0=wgen;const r=await g(rng("A2:AO73")+"?$select=values"),v=r.values;
  if(!force&&wgen!==g0)return;
@@ -57,7 +63,8 @@ async function load(force){if(!force)await q;const g0=wgen;const r=await g(rng("
  for(let i=2;i<v.length;i++){const w=v[i],n=String(w[2]).trim();if(!n)continue;
   customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,32).map(x=>+x||0),dn:+w[33]||0})}
  if(["due","name","rest"].includes(v[0][40]))sortBy=v[0][40];
- if(cur){const c=customers.find(x=>x.row===cur.row&&x.n===cur.n);if(c)cur=c}}
+ if(cur){const c=customers.find(x=>x.row===cur.row&&x.n===cur.n);if(c)cur=c}
+ syncErr=false;lastSync=new Date();setSync()}
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
 function sumDay(ds){const k=dateCols.indexOf(ds);return ds&&k>=0?customers.reduce((a,c)=>a+(c.pay[k]||0),0):0}
 // ===== التنقل =====
@@ -65,7 +72,7 @@ const LV={home:0,customers:1,coll:1,add:2,cust:2};let curV="home";
 function hp(v){history.pushState({v},"");curV=v}
 async function show(v,reload){if(v==="add"||v==="cust")v="customers";curV=v;
  v==="customers"?custPage():v==="coll"?collPage():render();
- if(reload){try{await load()}catch(e){return toast("تعذر التحديث: "+e.message)}
+ if(reload){try{await load()}catch(e){syncErr=true;setSync();return toast("تعذر التحديث: "+e.message)}
   const t=document.activeElement&&document.activeElement.tagName;if(curV!==v||t==="INPUT"||t==="SELECT")return;
   v==="customers"?list():v==="coll"?collPage():render()}}
 async function nav(v){hp(v);await show(v,true)}
