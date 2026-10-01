@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>متابعة المديونية</title>
-<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="theme-color" content="#0f766e">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--tx:#111;--mut:#667;--pr:#0f766e;--red:#b91c1c;--bd:#dde}
@@ -89,4 +89,5 @@ async function delP(i){if(!confirm("حذف الدفعة دي؟"))return;
 (async()=>{$("today").textContent=new Date().toLocaleDateString("en-GB");
  try{await msalApp.handleRedirectPromise()}catch(e){}
  if(msalApp.getAllAccounts().length){$("app").innerHTML='<div class="card">جاري التحميل...</div>';try{await load();render()}catch(e){$("app").innerHTML='<div class="card red">'+e.message+'</div>'}}})();
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script></body></html>
