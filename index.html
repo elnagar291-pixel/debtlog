@@ -15,7 +15,7 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 .big{text-align:center}.num{font-size:26px;font-weight:bold}.gn{color:#15803d}.tile{display:flex;justify-content:space-between;align-items:center;font-size:18px;cursor:pointer}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}#msg{position:fixed;bottom:16px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
-<header><b onclick="go('home')" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header>
+<header><b onclick="home()" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header>
 <main id="app"><div class="card">
 <p>اتأكد إنك مدخل الـ Client ID في أول الكود (CONFIG).</p><button onclick="login()">تسجيل الدخول بحساب Microsoft</button></div></main>
 <div id="msg"></div>
@@ -46,13 +46,20 @@ async function load(){const[c,l]=await Promise.all([g("/tables/tblCustomers/rows
 function stat(c){const m=log.filter(x=>x.c===c.n);const p=m.filter(x=>x.t==="Payment").reduce((s,x)=>s+x.a,0),dn=m.filter(x=>x.t==="DN").reduce((s,x)=>s+x.a,0);return{p,dn,rest:c.debt-p-dn}}
 let view="home",sortBy="due";
 const sumPay=ds=>log.filter(x=>x.d===ds&&x.t==="Payment").reduce((a,x)=>a+x.a,0);
-async function go(v){$("app").innerHTML='<div class="card">جاري التحديث...</div>';try{await load()}catch(e){}
+const LV={home:0,customers:1,coll:1,add:2,cust:2};let curV="home";
+function hp(v){history.pushState({v},"");curV=v}
+async function show(v,reload){if(v==="add"||v==="cust")v="customers";curV=v;
+ if(reload){$("app").innerHTML='<div class="card">جاري التحديث...</div>';try{await load()}catch(e){}}
  v==="customers"?custPage():v==="coll"?collPage():render()}
+async function nav(v){hp(v);await show(v,true)}
+function home(){const d=LV[curV]||0;d?history.go(-d):render()}
+window.addEventListener("popstate",e=>show((e.state&&e.state.v)||"home",true));
+try{history.replaceState({v:"home"},"")}catch(e){}
 function render(){view="home";const total=customers.reduce((a,c)=>a+stat(c).rest,0),tp=sumPay(serial(new Date()));
  $("app").innerHTML=`<div class="g"><div class="card big"><div class="mut">إجمالي المديونية</div><div class="num red">${fmt(total)}</div></div><div class="card big"><div class="mut">تحصيل اليوم</div><div class="num gn">${fmt(tp)}</div></div></div>
- <div class="card tile" onclick="go('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
- <div class="card tile" onclick="go('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>`}
-function custPage(){view="customers";$("app").innerHTML=`<button class="gr" onclick="go('home')">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="sortBy=this.value;list()"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
+ <div class="card tile" onclick="nav('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
+ <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>`}
+function custPage(){view="customers";$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="sortBy=this.value;list()"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
 function list(){const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
  if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
@@ -60,26 +67,26 @@ function list(){const q=($("q")?.value||"").trim(),t=serial(new Date());
  else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
  $("list").innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
   if(s.rest>0&&c.ds){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}
-  return `<div class="card cust${cls}" onclick="open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)} ${tag}</div></div>`}).join("")}
-function addForm(){$("app").innerHTML=`<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="${ymd(new Date())}"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="custPage()">رجوع</button>`}
+  return `<div class="card cust${cls}" onclick="hp('cust');open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)} ${tag}</div></div>`}).join("")}
+function addForm(){$("app").innerHTML=`<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="${ymd(new Date())}"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 async function addCust(){const n=$("cn").value.trim(),a=$("ca").value.trim(),d=$("cd").value,m=parseFloat($("cm").value);
  if(!n||!d||isNaN(m))return toast("اكتب الاسم والتاريخ والمديونية");
  if(customers.some(c=>c.n===n))return toast("العميل ده موجود قبل كده");
  const ds=serialY(d);try{await g("/tables/tblCustomers/rows/add",{method:"POST",body:JSON.stringify({values:[[n,a,ds,m]]})});
- customers.push({n,a,d:fromSerial(ds),ds,debt:m});toast("اتضاف ✔");custPage()}catch(e){toast("حصل خطأ: "+e.message)}}
+ customers.push({n,a,d:fromSerial(ds),ds,debt:m});toast("اتضاف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
 function open_(i){cur=customers[i];const s=stat(cur);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${cur.n}</h3><div class="mut">${cur.a||""} · استحقاق ${dstr(cur.d)}</div>
  <div class="row"><span>المديونية</span><b>${fmt(cur.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
  <div class="card"><span class="mut">تاريخ الحركة</span><input id="dt" type="date" value="${selDate}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ"><input id="note" placeholder="ملاحظة (اختياري)">
- <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div><button class="gr" onclick="custPage()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
+ <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
 async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
  const dv=$("dt").value||ymd(new Date());const row=[serialY(dv),cur.n,type,a,$("note").value||""];
  try{await g("/tables/tblLog/rows/add",{method:"POST",body:JSON.stringify({values:[row]})});log.push({d:row[0],c:cur.n,t:type,a,n:row[4]});selDate=dv;toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
 async function delCust(){if(!confirm("حذف العميل "+cur.n+"؟ (سجل دفعاته هيفضل في الملف)"))return;
- try{await load();const c=customers.find(x=>x.n===cur.n);if(!c)return custPage();
- await g("/tables/tblCustomers/rows/itemAt(index="+c.i+")",{method:"DELETE"});await load();toast("اتحذف ✔");custPage()}catch(e){toast("حصل خطأ: "+e.message)}}
+ try{await load();const c=customers.find(x=>x.n===cur.n);if(!c)return history.back();
+ await g("/tables/tblCustomers/rows/itemAt(index="+c.i+")",{method:"DELETE"});await load();toast("اتحذف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
 function collPage(){view="coll";const ds=serialY(selDate),day=log.filter(x=>x.d===ds&&x.t==="Payment"),tp=day.reduce((a,x)=>a+x.a,0);
- $("app").innerHTML=`<button class="gr" onclick="go('home')">← الرئيسية</button><div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="${selDate}" onchange="selDate=this.value||ymd(new Date());collPage()">
+ $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="${selDate}" onchange="selDate=this.value||ymd(new Date());collPage()">
  <div class="row"><span>تحصيل ${dstr(fromSerial(ds))}</span><b class="gn">${fmt(tp)}</b></div><div class="row"><span>عدد العملاء</span><b>${new Set(day.map(x=>x.c)).size}</b></div></div>`+
  (day.length?day.map(x=>`<div class="card"><b>${x.c}</b><div class="g"><input type="number" inputmode="decimal" id="a${x.i}" value="${x.a}"><button onclick="saveP(${x.i})">حفظ</button></div><button class="gr" onclick="delP(${x.i})">حذف الدفعة</button></div>`).join(""):'<div class="card mut">مفيش تحصيلات في اليوم ده</div>')}
 async function saveP(i){const x=log.find(e=>e.i===i),a=parseFloat($("a"+i).value);if(!x||!a||a<=0)return toast("اكتب مبلغ صحيح");
