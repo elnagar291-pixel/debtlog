@@ -27,6 +27,9 @@ const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],log=[],cur=null;
 const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString("en-US");
 const serial=d=>Math.floor((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()))/864e5)+25569;
 const fromSerial=s=>typeof s==="number"?new Date((s-25569)*864e5):null;
+const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const serialY=t=>{const[a,b,c]=t.split("-").map(Number);return Math.floor(Date.UTC(a,b-1,c)/864e5)+25569};
+let selDate=ymd(new Date());
 const dstr=d=>d?d.toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"UTC"}):"";
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
@@ -39,21 +42,24 @@ async function load(){const[c,l]=await Promise.all([g("/tables/tblCustomers/rows
  customers=c.value.map(r=>({n:String(r.values[0][0]).trim(),a:r.values[0][1],d:fromSerial(r.values[0][2]),debt:+r.values[0][3]||0})).filter(x=>x.n);
  log=l.value.map(r=>({d:r.values[0][0],c:String(r.values[0][1]).trim(),t:r.values[0][2],a:+r.values[0][3]||0}))}
 function stat(c){const m=log.filter(x=>x.c===c.n);const p=m.filter(x=>x.t==="Payment").reduce((s,x)=>s+x.a,0),dn=m.filter(x=>x.t==="DN").reduce((s,x)=>s+x.a,0);return{p,dn,rest:c.debt-p-dn}}
-function render(){cur=null;const todayS=serial(new Date());
- const tp=log.filter(x=>x.d===todayS&&x.t==="Payment").reduce((s,x)=>s+x.a,0);
+function render(){cur=null;const ds=serialY(selDate);
+ const day=log.filter(x=>x.d===ds),tp=day.filter(x=>x.t==="Payment").reduce((s,x)=>s+x.a,0);
  const total=customers.reduce((s,c)=>s+stat(c).rest,0);
- $("app").innerHTML=`<div class="card"><div class="row"><span>تحصيل النهارده</span><b>${fmt(tp)}</b></div><div class="row"><span>إجمالي المتبقي</span><b class="red">${fmt(total)}</b></div></div>
- <input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div id="list" style="margin-top:10px"></div>`;list()}
+ const items=day.filter(x=>x.t==="Payment").map(x=>'<div class="mut">'+x.c+' · '+fmt(x.a)+'</div>').join("");
+ $("app").innerHTML='<div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="'+selDate+'" onchange="selDate=this.value||ymd(new Date());render()">'+
+ '<div class="row"><span>تحصيل اليوم</span><b>'+fmt(tp)+'</b></div>'+items+
+ '<div class="row"><span>إجمالي المتبقي (كل العملاء)</span><b class="red">'+fmt(total)+'</b></div></div>'+
+ '<input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div id="list" style="margin-top:10px"></div>';list()}
 function list(){const q=($("q")?.value||"").trim();$("list").innerHTML=customers.filter(c=>c.n.includes(q)).sort((a,b)=>(a.d||0)-(b.d||0)).map(c=>{const s=stat(c);
  return`<div class="card cust" onclick="open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)}</div></div>`}).join("")}
 function open_(i){cur=customers[i];const s=stat(cur);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${cur.n}</h3><div class="mut">${cur.a||""} · استحقاق ${dstr(cur.d)}</div>
  <div class="row"><span>المديونية</span><b>${fmt(cur.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
- <div class="card"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ"><input id="note" placeholder="ملاحظة (اختياري)">
+ <div class="card"><span class="mut">تاريخ الحركة</span><input id="dt" type="date" value="${selDate}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ"><input id="note" placeholder="ملاحظة (اختياري)">
  <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div><button class="gr" onclick="render()">رجوع</button>`}
 async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
- const row=[serial(new Date()),cur.n,type,a,$("note").value||""];
- try{await g("/tables/tblLog/rows/add",{method:"POST",body:JSON.stringify({values:[row]})});log.push({d:row[0],c:cur.n,t:type,a});toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
+ const dv=$("dt").value||ymd(new Date());const row=[serialY(dv),cur.n,type,a,$("note").value||""];
+ try{await g("/tables/tblLog/rows/add",{method:"POST",body:JSON.stringify({values:[row]})});log.push({d:row[0],c:cur.n,t:type,a});selDate=dv;toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
 (async()=>{$("today").textContent=new Date().toLocaleDateString("ar-EG",{day:"numeric",month:"long"});
  try{await msalApp.handleRedirectPromise()}catch(e){}
  if(msalApp.getAllAccounts().length){$("app").innerHTML='<div class="card">جاري التحميل...</div>';try{await load();render()}catch(e){$("app").innerHTML='<div class="card red">'+e.message+'</div>'}}})();
