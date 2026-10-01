@@ -92,8 +92,11 @@ async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return t
   if(k<0){k=dateCols.findIndex((d,i)=>!d&&!customers.some(c=>c.pay[i]));if(k<0)return toast("أعمدة الأيام (27) كلها اتملت");await put(colL(6+k)+"2",[[ds]])}
   await put(colL(6+k)+row,[[(cur.pay[k]||0)+a]]);selDate=dv}
  await load();cur=customers.find(c=>c.row===row);toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
-async function delCust(){if(!confirm("حذف العميل "+cur.n+"؟ (دفعاته وDN بتاعه هيتمسحوا من الشيت)"))return;
- try{const r=cur.row;await put("B"+r+":AF"+r,[Array(31).fill("")]);await put("AH"+r,[[""]]);await load();toast("اتحذف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
+async function delCust(){
+ try{const r=cur.row,n=cur.n;await load();const c=customers.find(x=>x.row===r&&x.n===n);if(!c){toast("العميل مش موجود");return history.back()}
+ const st=stat(c);if(st.p>0||st.dn>0)return toast("مينفعش تحذف عميل عليه دفعات أو DN مسجلة");
+ if(!confirm("حذف العميل "+n+"؟"))return;
+ await put("B"+r+":E"+r,[["","","",""]]);await load();toast("اتحذف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
 function collPage(){const ds=serialY(selDate),k=dateCols.indexOf(ds),day=k<0?[]:customers.filter(c=>c.pay[k]>0),tp=day.reduce((a,c)=>a+c.pay[k],0);
  $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="${selDate}" onchange="selDate=this.value||ymd(new Date());collPage()">
  <div class="row"><span>تحصيل ${dstr(fromSerial(ds))}</span><b class="gn">${fmt(tp)}</b></div><div class="row"><span>عدد العملاء</span><b>${day.length}</b></div></div>`+
