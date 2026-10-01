@@ -25,7 +25,7 @@ const CONFIG={clientId:"b79514a7-23a6-4a62-b7d8-1d6ef6c52582",filePath:"/ENGING.
 // ==================
 if(typeof msal==="undefined"){document.addEventListener("DOMContentLoaded",()=>{$("app").innerHTML='<div class="card red">مكتبة الدخول ما اتحملتش، تأكد من النت وجرب تاني</div>'})}
 const msalApp=typeof msal==="undefined"?null:new msal.PublicClientApplication({auth:{clientId:CONFIG.clientId,authority:"https://login.microsoftonline.com/3e049ef2-19d4-4c16-ae1b-82d2a3a0af6a",redirectUri:"https://elnagar291-pixel.github.io/debtlog/"},cache:{cacheLocation:"localStorage"}});
-const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],dateCols=[],cur=null;
+const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],dateCols=[],cur=null,sid=null;
 const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString("en-US");
 const serial=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5)+25569;
 const fromSerial=s=>typeof s==="number"&&s>0?new Date((s-25569)*864e5):null;
@@ -38,24 +38,36 @@ function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTi
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
 async function token(){const a=msalApp.getAllAccounts()[0];if(!a)throw"login";
  try{return(await msalApp.acquireTokenSilent({scopes:SCOPES,account:a})).accessToken}catch(e){await msalApp.acquireTokenRedirect({scopes:SCOPES})}}
-async function g(path,opt={}){const t=await token();
- const r=await fetch("https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/workbook"+path,{...opt,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"}});
- if(!r.ok)throw new Error(r.status+" "+(await r.text()).slice(0,120));const tx=await r.text();return tx?JSON.parse(tx):null}
+const BASE=()=>"https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/workbook";
+// جلسة عمل مع الإكسيل: بتسرّع كل المكالمات اللي بعدها
+async function session(){try{const t=await token();const r=await fetch(BASE()+"/createSession",{method:"POST",headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"},body:JSON.stringify({persistChanges:true})});sid=r.ok?(await r.json()).id:null}catch(e){sid=null}}
+async function g(path,opt={},retry=true){const t=await token(),h={Authorization:"Bearer "+t,"Content-Type":"application/json"};if(sid)h["workbook-session-id"]=sid;
+ const r=await fetch(BASE()+path,{...opt,headers:h});
+ if(!r.ok){if(sid&&retry){sid=null;await session();return g(path,opt,false)}throw new Error(r.status+" "+(await r.text()).slice(0,120))}
+ const tx=await r.text();return tx?JSON.parse(tx):null}
 const rng=a=>"/worksheets('"+CONFIG.sheet+"')/range(address='"+a+"')";
 const put=(a,v)=>g(rng(a),{method:"PATCH",body:JSON.stringify({values:v})});
+// طابور الكتابة: التغيير بيظهر فورًا والحفظ في الشيت بيتم ورا الكواليس بالترتيب
+let q=Promise.resolve(),wgen=0;
+function enqueue(f){wgen++;q=q.then(f).catch(e=>{toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
-async function load(){const r=await g(rng("A2:AO73")+"?$select=values"),v=r.values;if(["due","name","rest"].includes(v[0][40]))sortBy=v[0][40];
+async function load(force){if(!force)await q;const g0=wgen;const r=await g(rng("A2:AO73")+"?$select=values"),v=r.values;
+ if(!force&&wgen!==g0)return;
  dateCols=v[0].slice(5,32).map(x=>typeof x==="number"?x:0);customers=[];
  for(let i=2;i<v.length;i++){const w=v[i],n=String(w[2]).trim();if(!n)continue;
-  customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,32).map(x=>+x||0),dn:+w[33]||0})}}
+  customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,32).map(x=>+x||0),dn:+w[33]||0})}
+ if(["due","name","rest"].includes(v[0][40]))sortBy=v[0][40];
+ if(cur){const c=customers.find(x=>x.row===cur.row&&x.n===cur.n);if(c)cur=c}}
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
 function sumDay(ds){const k=dateCols.indexOf(ds);return ds&&k>=0?customers.reduce((a,c)=>a+(c.pay[k]||0),0):0}
 // ===== التنقل =====
 const LV={home:0,customers:1,coll:1,add:2,cust:2};let curV="home";
 function hp(v){history.pushState({v},"");curV=v}
 async function show(v,reload){if(v==="add"||v==="cust")v="customers";curV=v;
- if(reload){$("app").innerHTML='<div class="card">جاري التحديث...</div>';try{await load()}catch(e){toast("تعذر التحديث: "+e.message)}}
- v==="customers"?custPage():v==="coll"?collPage():render()}
+ v==="customers"?custPage():v==="coll"?collPage():render();
+ if(reload){try{await load()}catch(e){return toast("تعذر التحديث: "+e.message)}
+  const t=document.activeElement&&document.activeElement.tagName;if(curV!==v||t==="INPUT"||t==="SELECT")return;
+  v==="customers"?list():v==="coll"?collPage():render()}}
 async function nav(v){hp(v);await show(v,true)}
 function home(){const d=LV[curV]||0;d?history.go(-d):render()}
 window.addEventListener("popstate",e=>show((e.state&&e.state.v)||"home",true));
@@ -66,52 +78,52 @@ function render(){curV="home";const total=customers.reduce((a,c)=>a+stat(c).rest
  <div class="card tile" onclick="nav('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
  <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>`}
 function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
-function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}put("AO2",[[v]]).catch(()=>{});list()}
-function list(){const q=($("q")?.value||"").trim(),t=serial(new Date());
+function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put("AO2",[[v]]));list()}
+function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
  if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
  else if(sortBy==="rest")a.sort((x,y)=>stat(y).rest-stat(x).rest);
  else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
- $("list").innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
+ el.innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
   if(s.rest>0&&c.ds){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}
   return `<div class="card cust${cls}" onclick="hp('cust');open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)} ${tag}</div></div>`}).join("")}
 function addForm(){$("app").innerHTML=`<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="${ymd(new Date())}"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
-async function addCust(){const n=$("cn").value.trim(),a=$("ca").value.trim(),d=$("cd").value,m=parseFloat($("cm").value);
+function addCust(){const n=$("cn").value.trim(),a=$("ca").value.trim(),d=$("cd").value,m=parseFloat($("cm").value);
  if(!n||!d||isNaN(m))return toast("اكتب الاسم والتاريخ والمديونية");
- try{await load();if(customers.some(c=>c.n===n))return toast("العميل ده موجود قبل كده");
+ if(customers.some(c=>c.n===n))return toast("العميل ده موجود قبل كده");
  const used=new Set(customers.map(c=>c.row));let r=4;while(r<=73&&used.has(r))r++;if(r>73)return toast("الشيت مليان (آخر صف 73)");
- await put("B"+r+":E"+r,[[serialY(d),n,a,m]]);await load();toast("اتضاف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
-function open_(i){cur=customers[i];const s=stat(cur);
- $("app").innerHTML=`<div class="card"><h3 style="margin:0">${cur.n}</h3><div class="mut">${cur.a||""} · استحقاق ${dstr(cur.d)}</div>
- <div class="row"><span>المديونية</span><b>${fmt(cur.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
+ const ds=serialY(d);customers.push({row:r,n,a,ds,d:fromSerial(ds),debt:m,pay:Array(27).fill(0),dn:0});
+ enqueue(()=>put("B"+r+":E"+r,[[ds,n,a,m]]));toast("اتضاف ✔");history.back()}
+function open_(i){openC(customers[i])}
+function openC(c){cur=c;const s=stat(c);
+ $("app").innerHTML=`<div class="card"><h3 style="margin:0">${c.n}</h3><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)}</div>
+ <div class="row"><span>المديونية</span><b>${fmt(c.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
  <div class="card"><span class="mut">تاريخ الدفعة</span><input id="dt" type="date" value="${selDate}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ">
  <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div>
- <div class="card"><b>تعديل بيانات العميل</b><br><span class="mut">المديونية</span><input id="ed" type="number" inputmode="decimal" value="${cur.debt}"><span class="mut">تاريخ الاستحقاق</span><input id="eds" type="date" value="${cur.d?cur.d.toISOString().slice(0,10):""}"><button onclick="saveCust()">حفظ التعديل</button></div><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
-async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
- try{const row=cur.row;await load();cur=customers.find(c=>c.row===row);if(!cur)return history.back();
- if(type==="DN"){await put("AH"+row,[[cur.dn+a]])}
- else{const dv=$("dt").value||ymd(new Date()),ds=serialY(dv);let k=dateCols.indexOf(ds);
-  if(k<0){k=dateCols.findIndex((d,i)=>!d&&!customers.some(c=>c.pay[i]));if(k<0)return toast("أعمدة الأيام (27) كلها اتملت");await put(colL(6+k)+"2",[[ds]])}
-  await put(colL(6+k)+row,[[(cur.pay[k]||0)+a]]);selDate=dv}
- await load();cur=customers.find(c=>c.row===row);toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
-async function saveCust(){const m=parseFloat($("ed").value),d=$("eds").value;if(isNaN(m)||m<0)return toast("اكتب مديونية صحيحة");
- try{const row=cur.row,n=cur.n;await load();if(!customers.some(c=>c.row===row&&c.n===n))return toast("العميل اتغير مكانه في الشيت، ارجع وافتحه تاني");
- await put("E"+row,[[m]]);if(d)await put("B"+row,[[serialY(d)]]);await load();cur=customers.find(c=>c.row===row);toast("اتعدل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
-async function delCust(){
- try{const r=cur.row,n=cur.n;await load();const c=customers.find(x=>x.row===r&&x.n===n);if(!c){toast("العميل مش موجود");return history.back()}
- const st=stat(c);if(st.p>0||st.dn>0)return toast("مينفعش تحذف عميل عليه دفعات أو DN مسجلة");
- if(!confirm("حذف العميل "+n+"؟"))return;
- await put("B"+r+":E"+r,[["","","",""]]);await load();toast("اتحذف ✔");history.back()}catch(e){toast("حصل خطأ: "+e.message)}}
-function collPage(){const ds=serialY(selDate),k=dateCols.indexOf(ds),day=k<0?[]:customers.filter(c=>c.pay[k]>0),tp=day.reduce((a,c)=>a+c.pay[k],0);
+ <div class="card"><b>تعديل بيانات العميل</b><br><span class="mut">المديونية</span><input id="ed" type="number" inputmode="decimal" value="${c.debt}"><span class="mut">تاريخ الاستحقاق</span><input id="eds" type="date" value="${c.d?c.d.toISOString().slice(0,10):""}"><button onclick="saveCust()">حفظ التعديل</button></div>
+ <button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
+function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=cur,row=c.row;
+ if(type==="DN"){c.dn+=a;const v=c.dn;enqueue(()=>put("AH"+row,[[v]]))}
+ else{const dv=$("dt").value||ymd(new Date()),ds=serialY(dv);let k=dateCols.indexOf(ds),nd=false;
+  if(k<0){k=dateCols.findIndex((d,i)=>!d&&!customers.some(x=>x.pay[i]));if(k<0)return toast("أعمدة الأيام (27) كلها اتملت");dateCols[k]=ds;nd=true}
+  const v=(c.pay[k]||0)+a;c.pay[k]=v;selDate=dv;enqueue(async()=>{if(nd)await put(colL(6+k)+"2",[[ds]]);await put(colL(6+k)+row,[[v]])})}
+ toast("اتسجل ✔");openC(c)}
+function saveCust(){const m=parseFloat($("ed").value),d=$("eds").value;if(isNaN(m)||m<0)return toast("اكتب مديونية صحيحة");const c=cur,row=c.row;
+ c.debt=m;if(d){c.ds=serialY(d);c.d=fromSerial(c.ds)}
+ enqueue(async()=>{await put("E"+row,[[m]]);if(d)await put("B"+row,[[serialY(d)]])});toast("اتعدل ✔");openC(c)}
+function delCust(){const c=cur,st=stat(c);if(st.p>0||st.dn>0)return toast("مينفعش تحذف عميل عليه دفعات أو DN مسجلة");
+ if(!confirm("حذف العميل "+c.n+"؟"))return;customers=customers.filter(x=>x!==c);const r=c.row;
+ enqueue(()=>put("B"+r+":E"+r,[["","","",""]]));toast("اتحذف ✔");history.back()}
+function collPage(){curV="coll";const ds=serialY(selDate),k=dateCols.indexOf(ds),day=k<0?[]:customers.filter(c=>c.pay[k]>0),tp=day.reduce((a,c)=>a+c.pay[k],0);
  $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="${selDate}" onchange="selDate=this.value||ymd(new Date());collPage()">
  <div class="row"><span>تحصيل ${dstr(fromSerial(ds))}</span><b class="gn">${fmt(tp)}</b></div><div class="row"><span>عدد العملاء</span><b>${day.length}</b></div></div>`+
  (day.length?day.map(c=>`<div class="card"><b>${c.n}</b><div class="g"><input type="number" inputmode="decimal" id="a${c.row}" value="${c.pay[k]}"><button onclick="saveP(${c.row},${k})">حفظ</button></div><button class="gr" onclick="delP(${c.row},${k})">حذف الدفعة</button></div>`).join(""):'<div class="card mut">مفيش تحصيلات في اليوم ده</div>')}
-async function saveP(row,k){const a=parseFloat($("a"+row).value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
- try{await put(colL(6+k)+row,[[a]]);await load();toast("اتعدل ✔");collPage()}catch(e){toast("حصل خطأ: "+e.message)}}
-async function delP(row,k){if(!confirm("حذف الدفعة دي؟"))return;
- try{await put(colL(6+k)+row,[[""]]);await load();toast("اتحذفت ✔");collPage()}catch(e){toast("حصل خطأ: "+e.message)}}
+function saveP(row,k){const a=parseFloat($("a"+row).value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=customers.find(x=>x.row===row);if(!c)return;
+ c.pay[k]=a;enqueue(()=>put(colL(6+k)+row,[[a]]));toast("اتعدل ✔");collPage()}
+function delP(row,k){if(!confirm("حذف الدفعة دي؟"))return;const c=customers.find(x=>x.row===row);if(!c)return;
+ c.pay[k]=0;enqueue(()=>put(colL(6+k)+row,[[""]]));toast("اتحذفت ✔");collPage()}
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 (async()=>{$("today").textContent=new Date().toLocaleDateString("en-GB");if(!msalApp)return;
  try{await msalApp.handleRedirectPromise()}catch(e){}
- if(msalApp.getAllAccounts().length){$("app").innerHTML='<div class="card">جاري التحميل...</div>';try{await load();render()}catch(e){$("app").innerHTML='<div class="card red">'+e.message+'</div>'}}})();
+ if(msalApp.getAllAccounts().length){$("app").innerHTML='<div class="card">جاري التحميل...</div>';try{await session();await load(true);render()}catch(e){$("app").innerHTML='<div class="card red">'+e.message+'</div>'}}})();
 </script></body></html>
