@@ -85,7 +85,8 @@ function open_(i){cur=customers[i];const s=stat(cur);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${cur.n}</h3><div class="mut">${cur.a||""} · استحقاق ${dstr(cur.d)}</div>
  <div class="row"><span>المديونية</span><b>${fmt(cur.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
  <div class="card"><span class="mut">تاريخ الدفعة</span><input id="dt" type="date" value="${selDate}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ">
- <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
+ <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div>
+ <div class="card"><b>تعديل بيانات العميل</b><br><span class="mut">المديونية</span><input id="ed" type="number" inputmode="decimal" value="${cur.debt}"><span class="mut">تاريخ الاستحقاق</span><input id="eds" type="date" value="${cur.d?cur.d.toISOString().slice(0,10):""}"><button onclick="saveCust()">حفظ التعديل</button></div><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
 async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
  try{const row=cur.row;await load();cur=customers.find(c=>c.row===row);if(!cur)return history.back();
  if(type==="DN"){await put("AH"+row,[[cur.dn+a]])}
@@ -93,6 +94,9 @@ async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return t
   if(k<0){k=dateCols.findIndex((d,i)=>!d&&!customers.some(c=>c.pay[i]));if(k<0)return toast("أعمدة الأيام (27) كلها اتملت");await put(colL(6+k)+"2",[[ds]])}
   await put(colL(6+k)+row,[[(cur.pay[k]||0)+a]]);selDate=dv}
  await load();cur=customers.find(c=>c.row===row);toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
+async function saveCust(){const m=parseFloat($("ed").value),d=$("eds").value;if(isNaN(m)||m<0)return toast("اكتب مديونية صحيحة");
+ try{const row=cur.row,n=cur.n;await load();if(!customers.some(c=>c.row===row&&c.n===n))return toast("العميل اتغير مكانه في الشيت، ارجع وافتحه تاني");
+ await put("E"+row,[[m]]);if(d)await put("B"+row,[[serialY(d)]]);await load();cur=customers.find(c=>c.row===row);toast("اتعدل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
 async function delCust(){
  try{const r=cur.row,n=cur.n;await load();const c=customers.find(x=>x.row===r&&x.n===n);if(!c){toast("العميل مش موجود");return history.back()}
  const st=stat(c);if(st.p>0||st.dn>0)return toast("مينفعش تحذف عميل عليه دفعات أو DN مسجلة");
