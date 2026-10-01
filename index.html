@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>متابعة المديونية</title>
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#0f766e">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/msal-browser/2.38.3/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--tx:#111;--mut:#667;--pr:#0f766e;--red:#b91c1c;--bd:#dde}
 @media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1c2127;--tx:#eee;--mut:#9ab;--bd:#334}}
@@ -21,14 +21,15 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 // ===== CONFIG: عدّل هنا بس =====
 const CONFIG={clientId:"b79514a7-23a6-4a62-b7d8-1d6ef6c52582",filePath:"/DebtLog.xlsx"}; // مسار الملف داخل OneDrive
 // ================================
-const msalApp=new msal.PublicClientApplication({auth:{clientId:CONFIG.clientId,authority:"https://login.microsoftonline.com/3e049ef2-19d4-4c16-ae1b-82d2a3a0af6a",redirectUri:"https://elnagar291-pixel.github.io/debtlog/"},cache:{cacheLocation:"localStorage"}});
+if(typeof msal==="undefined"){document.addEventListener("DOMContentLoaded",()=>{$("app").innerHTML='<div class="card red">مكتبة الدخول ما اتحملتش، تأكد من النت وجرب تاني</div>'})}
+const msalApp=typeof msal==="undefined"?null:new msal.PublicClientApplication({auth:{clientId:CONFIG.clientId,authority:"https://login.microsoftonline.com/3e049ef2-19d4-4c16-ae1b-82d2a3a0af6a",redirectUri:"https://elnagar291-pixel.github.io/debtlog/"},cache:{cacheLocation:"localStorage"}});
 const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],log=[],cur=null;
 const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString("en-US");
 const serial=d=>Math.floor((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()))/864e5)+25569;
 const fromSerial=s=>typeof s==="number"?new Date((s-25569)*864e5):null;
 const dstr=d=>d?d.toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"UTC"}):"";
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
-async function login(){await msalApp.loginRedirect({scopes:SCOPES})}
+async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
 async function token(){const a=msalApp.getAllAccounts()[0];if(!a)throw"login";
  try{return(await msalApp.acquireTokenSilent({scopes:SCOPES,account:a})).accessToken}catch(e){await msalApp.acquireTokenRedirect({scopes:SCOPES})}}
 async function g(path,opt={}){const t=await token();
