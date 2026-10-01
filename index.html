@@ -11,6 +11,7 @@ main{padding:12px;max-width:600px;margin:auto}.card{background:var(--card);borde
 input,select,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
 button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{background:#b45309}button.gr{background:#667}
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd)}.cust{cursor:pointer}.red{color:var(--red);font-weight:bold}.mut{color:var(--mut);font-size:13px}
+.soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}#msg{position:fixed;bottom:16px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
 <header><b>متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header>
@@ -30,7 +31,7 @@ const fromSerial=s=>typeof s==="number"?new Date((s-25569)*864e5):null;
 const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const serialY=t=>{const[a,b,c]=t.split("-").map(Number);return Math.floor(Date.UTC(a,b-1,c)/864e5)+25569};
 let selDate=ymd(new Date());
-const dstr=d=>d?d.toLocaleDateString("en-GB",{day:"numeric",month:"short",timeZone:"UTC"}):"";
+const dstr=d=>d?String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0")+"/"+d.getUTCFullYear():"";
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
 async function token(){const a=msalApp.getAllAccounts()[0];if(!a)throw"login";
@@ -39,7 +40,7 @@ async function g(path,opt={}){const t=await token();
  const r=await fetch("https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/workbook"+path,{...opt,headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"}});
  if(!r.ok)throw new Error(r.status+" "+(await r.text()).slice(0,120));return r.json()}
 async function load(){const[c,l]=await Promise.all([g("/tables/tblCustomers/rows"),g("/tables/tblLog/rows")]);
- customers=c.value.map(r=>({n:String(r.values[0][0]).trim(),a:r.values[0][1],d:fromSerial(r.values[0][2]),debt:+r.values[0][3]||0})).filter(x=>x.n);
+ customers=c.value.map(r=>({n:String(r.values[0][0]).trim(),a:r.values[0][1],d:fromSerial(r.values[0][2]),ds:+r.values[0][2]||0,debt:+r.values[0][3]||0})).filter(x=>x.n);
  log=l.value.map(r=>({d:r.values[0][0],c:String(r.values[0][1]).trim(),t:r.values[0][2],a:+r.values[0][3]||0}))}
 function stat(c){const m=log.filter(x=>x.c===c.n);const p=m.filter(x=>x.t==="Payment").reduce((s,x)=>s+x.a,0),dn=m.filter(x=>x.t==="DN").reduce((s,x)=>s+x.a,0);return{p,dn,rest:c.debt-p-dn}}
 function render(){cur=null;const ds=serialY(selDate);
@@ -49,9 +50,22 @@ function render(){cur=null;const ds=serialY(selDate);
  $("app").innerHTML='<div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="'+selDate+'" onchange="selDate=this.value||ymd(new Date());render()">'+
  '<div class="row"><span>تحصيل اليوم</span><b>'+fmt(tp)+'</b></div>'+items+
  '<div class="row"><span>إجمالي المتبقي (كل العملاء)</span><b class="red">'+fmt(total)+'</b></div></div>'+
- '<input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div id="list" style="margin-top:10px"></div>';list()}
-function list(){const q=($("q")?.value||"").trim();$("list").innerHTML=customers.filter(c=>c.n.includes(q)).sort((a,b)=>(a.d||0)-(b.d||0)).map(c=>{const s=stat(c);
- return`<div class="card cust" onclick="open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)}</div></div>`}).join("")}
+ '<input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="sortBy=this.value;list()"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>';$("so").value=sortBy;list()}
+let sortBy="due";
+function list(){const q=($("q")?.value||"").trim(),t=serial(new Date());
+ let a=customers.filter(c=>c.n.includes(q));
+ if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
+ else if(sortBy==="rest")a.sort((x,y)=>stat(y).rest-stat(x).rest);
+ else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
+ $("list").innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
+  if(s.rest>0&&c.ds){if(dl<0){cls=" late";tag='<span class="tag r">متأخر '+(-dl)+' يوم</span>'}else if(dl<=7){cls=" soon";tag='<span class="tag o">باقي '+dl+' يوم</span>'}}
+  return '<div class="card cust'+cls+'" onclick="open_('+customers.indexOf(c)+')"><div class="row" style="border:0"><b>'+c.n+'</b><span class="'+(s.rest>0?"red":"")+'">'+fmt(s.rest)+'</span></div><div class="mut">'+(c.a||"")+' · استحقاق '+dstr(c.d)+' '+tag+'</div></div>'}).join("")}
+function addForm(){$("app").innerHTML='<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="'+ymd(new Date())+'"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="render()">رجوع</button>'}
+async function addCust(){const n=$("cn").value.trim(),a=$("ca").value.trim(),d=$("cd").value,m=parseFloat($("cm").value);
+ if(!n||!d||isNaN(m))return toast("اكتب الاسم والتاريخ والمديونية");
+ if(customers.some(c=>c.n===n))return toast("العميل ده موجود قبل كده");
+ const ds=serialY(d);try{await g("/tables/tblCustomers/rows/add",{method:"POST",body:JSON.stringify({values:[[n,a,ds,m]]})});
+ customers.push({n,a,d:fromSerial(ds),ds,debt:m});toast("اتضاف ✔");render()}catch(e){toast("حصل خطأ: "+e.message)}}
 function open_(i){cur=customers[i];const s=stat(cur);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${cur.n}</h3><div class="mut">${cur.a||""} · استحقاق ${dstr(cur.d)}</div>
  <div class="row"><span>المديونية</span><b>${fmt(cur.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
@@ -60,7 +74,7 @@ function open_(i){cur=customers[i];const s=stat(cur);
 async function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");
  const dv=$("dt").value||ymd(new Date());const row=[serialY(dv),cur.n,type,a,$("note").value||""];
  try{await g("/tables/tblLog/rows/add",{method:"POST",body:JSON.stringify({values:[row]})});log.push({d:row[0],c:cur.n,t:type,a});selDate=dv;toast("اتسجل ✔");open_(customers.indexOf(cur))}catch(e){toast("حصل خطأ: "+e.message)}}
-(async()=>{$("today").textContent=new Date().toLocaleDateString("ar-EG",{day:"numeric",month:"long"});
+(async()=>{$("today").textContent=new Date().toLocaleDateString("en-GB");
  try{await msalApp.handleRedirectPromise()}catch(e){}
  if(msalApp.getAllAccounts().length){$("app").innerHTML='<div class="card">جاري التحميل...</div>';try{await load();render()}catch(e){$("app").innerHTML='<div class="card red">'+e.message+'</div>'}}})();
 </script></body></html>
