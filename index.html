@@ -33,7 +33,7 @@ const ymd=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+Stri
 const serialY=t=>{const[a,b,c]=t.split("-").map(Number);return Math.floor(Date.UTC(a,b-1,c)/864e5)+25569};
 const dstr=d=>d?String(d.getUTCDate()).padStart(2,"0")+"/"+String(d.getUTCMonth()+1).padStart(2,"0")+"/"+d.getUTCFullYear():"";
 const colL=n=>{let s="";while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26)}return s};
-let selDate=ymd(new Date()),sortBy="due";
+let selDate=ymd(new Date()),sortBy=(()=>{try{return localStorage.getItem("sortBy")||"due"}catch(e){return"due"}})();
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
 async function token(){const a=msalApp.getAllAccounts()[0];if(!a)throw"login";
@@ -44,7 +44,7 @@ async function g(path,opt={}){const t=await token();
 const rng=a=>"/worksheets('"+CONFIG.sheet+"')/range(address='"+a+"')";
 const put=(a,v)=>g(rng(a),{method:"PATCH",body:JSON.stringify({values:v})});
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
-async function load(){const r=await g(rng("A2:AI73")+"?$select=values"),v=r.values;
+async function load(){const r=await g(rng("A2:AO73")+"?$select=values"),v=r.values;if(["due","name","rest"].includes(v[0][40]))sortBy=v[0][40];
  dateCols=v[0].slice(5,32).map(x=>typeof x==="number"?x:0);customers=[];
  for(let i=2;i<v.length;i++){const w=v[i],n=String(w[2]).trim();if(!n)continue;
   customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,32).map(x=>+x||0),dn:+w[33]||0})}}
@@ -65,7 +65,8 @@ function render(){curV="home";const total=customers.reduce((a,c)=>a+stat(c).rest
  $("app").innerHTML=`<div class="g"><div class="card big"><div class="mut">إجمالي المديونية</div><div class="num red">${fmt(total)}</div></div><div class="card big"><div class="mut">تحصيل اليوم</div><div class="num gn">${fmt(tp)}</div></div></div>
  <div class="card tile" onclick="nav('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
  <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>`}
-function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="sortBy=this.value;list()"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
+function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
+function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}put("AO2",[[v]]).catch(()=>{});list()}
 function list(){const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
  if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
