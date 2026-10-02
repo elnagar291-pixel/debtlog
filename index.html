@@ -14,6 +14,7 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 .soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
 .big{text-align:center}.num{font-size:26px;font-weight:bold}.gn{color:#15803d}.tile{display:flex;justify-content:space-between;align-items:center;font-size:18px;cursor:pointer}
 .sync{padding:5px 14px;font-size:13px;cursor:pointer;text-align:center}.sync.ok{background:rgba(21,128,61,.15);color:#15803d}.sync.wait{background:rgba(217,119,6,.18);color:#b45309}.sync.err{background:rgba(185,28,28,.15);color:#b91c1c}
+.ta{width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font:13px Arial}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}#msg{position:fixed;bottom:16px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
 <header><b onclick="home()" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header><div id="sync" class="sync" onclick="show(curV,true)"></div>
@@ -26,7 +27,7 @@ const CONFIG={clientId:"b79514a7-23a6-4a62-b7d8-1d6ef6c52582",filePath:"/ENGING.
 // ==================
 if(typeof msal==="undefined"){document.addEventListener("DOMContentLoaded",()=>{$("app").innerHTML='<div class="card red">مكتبة الدخول ما اتحملتش، تأكد من النت وجرب تاني</div>'})}
 const msalApp=typeof msal==="undefined"?null:new msal.PublicClientApplication({auth:{clientId:CONFIG.clientId,authority:"https://login.microsoftonline.com/3e049ef2-19d4-4c16-ae1b-82d2a3a0af6a",redirectUri:"https://elnagar291-pixel.github.io/debtlog/"},cache:{cacheLocation:"localStorage"}});
-const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],dateCols=[],cur=null,sid=null;
+const SCOPES=["Files.ReadWrite","User.Read"];let customers=[],dateCols=[],cur=null,sid=null,tk="";
 const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString("en-US");
 const serial=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5)+25569;
 const fromSerial=s=>typeof s==="number"&&s>0?new Date((s-25569)*864e5):null;
@@ -59,10 +60,12 @@ let selDate=ymd(new Date()),sortBy=(()=>{try{return localStorage.getItem("sortBy
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
 async function token(){const a=msalApp.getAllAccounts()[0];if(!a)throw"login";
- try{return(await msalApp.acquireTokenSilent({scopes:SCOPES,account:a})).accessToken}catch(e){await msalApp.acquireTokenRedirect({scopes:SCOPES})}}
+ try{tk=(await msalApp.acquireTokenSilent({scopes:SCOPES,account:a})).accessToken;return tk}catch(e){await msalApp.acquireTokenRedirect({scopes:SCOPES})}}
 const BASE=()=>"https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/workbook";
 // جلسة عمل مع الإكسيل: بتسرّع كل المكالمات اللي بعدها
 async function session(){try{const t=await token();const r=await fetch(BASE()+"/createSession",{method:"POST",headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"},body:JSON.stringify({persistChanges:true})});sid=r.ok?(await r.json()).id:null}catch(e){sid=null}}
+// قفل جلسة الإكسيل أول ما تسيب التطبيق، عشان الملف ما يفضلش "مفتوح" وتقدر تمسحه أو تغيّر اسمه
+function closeSess(){if(!sid||!tk)return;const s0=sid;sid=null;try{fetch(BASE()+"/closeSession",{method:"POST",keepalive:true,headers:{Authorization:"Bearer "+tk,"workbook-session-id":s0,"Content-Type":"application/json"},body:"{}"}).catch(()=>{})}catch(e){}}
 async function g(path,opt={},retry=true){const t=await token(),h={Authorization:"Bearer "+t,"Content-Type":"application/json"};if(sid)h["workbook-session-id"]=sid;
  const r=await fetch(BASE()+path,{...opt,headers:h});
  if(!r.ok){if(sid&&retry){sid=null;await session();return g(path,opt,false)}throw new Error(r.status+" "+(await r.text()).slice(0,120))}
@@ -76,7 +79,7 @@ function setSync(){const e=$("sync");if(!e)return;
  else if(syncErr){e.textContent="⚠ المزامنة فشلت، اضغط للمحاولة تاني";e.className="sync err"}
  else if(lastSync){e.textContent="✔ تمت المزامنة · آخر تحديث "+lastSync.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});e.className="sync ok"}
  else{e.textContent="";e.className="sync"}}
-function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync()}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
+function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync();if(pend===0&&document.hidden)closeSess()}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
 async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2:"+colL(LAY.act+8)+"73")+"?$select=values"),v=r.values;
  if(String(v[1][LAY.act-1]).trim()!=="Actual"){const h=(await g(rng("A3:GZ3")+"?$select=values")).values[0],ix=h.findIndex(x=>String(x).trim()==="Actual");
@@ -92,7 +95,7 @@ async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
 function sumDay(ds){const k=findCol(ds);return ds&&k>=0?customers.reduce((a,c)=>a+(c.pay[k]||0),0):0}
 // ===== التنقل =====
-const LV={home:0,customers:1,coll:1,add:2,cust:2,hist:3,adddebt:3};let curV="home";
+const LV={home:0,customers:1,coll:1,add:2,cust:2,hist:3,adddebt:3,link:1,import:1};let curV="home";
 function hp(v){history.pushState({v},"");curV=v}
 function draw(v,refresh){v==="customers"?(refresh?list():custPage()):v==="coll"?collPage():v==="cust"?openC(cur):render()}
 async function show(v,reload){dirty=false;if(v==="add")v="customers";if(v==="hist"||v==="adddebt")v="cust";if(v==="cust"&&!cur)v="customers";curV=v;draw(v);
@@ -107,7 +110,9 @@ function render(){curV="home";const sm=monthOf(dateCols[0]),now=monthOf(serial(n
  $("app").innerHTML=(!al?`<div class="card soon" onclick="setupSheet()"><b>⚙ تهيئة الشهر (31 يوم)</b><div class="mut">الأعمدة محتاجة ترتيب على أيام الشهر، اضغط هنا</div></div>`:(sm&&now&&now.y*12+now.m>sm.y*12+sm.m?`<div class="card late" onclick="closeMonth()"><b>📅 الشهر الجديد بدأ</b><div class="mut">اضغط لإقفال شهر ${sm.m}/${sm.y} وترحيل المتبقي</div></div>`:""))+`<div class="g"><div class="card big"><div class="mut">إجمالي المديونية</div><div class="num red">${fmt(total)}</div></div><div class="card big"><div class="mut">تحصيل اليوم</div><div class="num gn">${fmt(tp)}</div></div></div>
  <div class="card tile" onclick="nav('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
  <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>
- <div class="card tile" onclick="closeMonth()"><b>📅 إقفال الشهر</b><span class="mut">${sm?sm.m+"/"+sm.y:""}</span></div>`}
+ <div class="card tile" onclick="closeMonth()"><b>📅 إقفال الشهر</b><span class="mut">${sm?sm.m+"/"+sm.y:""}</span></div>
+ <div class="card tile" onclick="hp('link');linkPage()"><b>🔗 رابط المحصّل</b><span class="mut">للاطلاع فقط</span></div>
+ <div class="card tile" onclick="hp('import');importPage()"><b>📥 ترحيل تحصيلات المحصّل</b><span class="mut">من واتساب</span></div>`}
 function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
 function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put(colL(LAY.act+8)+"2",[[v]]));list()}
 function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
@@ -306,6 +311,47 @@ function saveP(row,k){const a=parseFloat($("a"+row).value);if(!a||a<=0)return to
  c.pay[k]=a;enqueue(()=>put(colL(6+k)+row,[[a]]));toast("اتعدل ✔");collPage()}
 function delP(row,k){if(!confirm("حذف الدفعة دي؟"))return;const c=customers.find(x=>x.row===row);if(!c)return;
  c.pay[k]=0;enqueue(()=>put(colL(6+k)+row,[[""]]));toast("اتحذفت ✔");collPage()}
+// ===== المحصّل: رابط للاطلاع + ترحيل التحصيلات =====
+const b64u=u=>{let t="";u.forEach(b=>t+=String.fromCharCode(b));return btoa(t).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")};
+const unb64u=t=>{t=t.replace(/-/g,"+").replace(/_/g,"/");while(t.length%4)t+="=";const x=atob(t),u=new Uint8Array(x.length);for(let i=0;i<x.length;i++)u[i]=x.charCodeAt(i);return u};
+async function encTok(o){const u=new TextEncoder().encode(JSON.stringify(o));
+ if(typeof CompressionStream!=="undefined"){const r=await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();return"z."+b64u(new Uint8Array(r))}return"p."+b64u(u)}
+async function decTok(t){let u=unb64u(t.slice(2));if(t[0]==="z")u=new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());return JSON.parse(new TextDecoder().decode(u))}
+const ownerPhone=()=>{try{return localStorage.getItem("ownerPhone")||""}catch(e){return""}};
+function savePh(v){try{localStorage.setItem("ownerPhone",String(v).replace(/\D/g,""))}catch(e){}linkPage()}
+let lkURL="";
+async function linkPage(){curV="link";
+ const rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),g0=serial(new Date());
+ $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">🔗 رابط المحصّل</h3>
+ <div class="mut">قائمة بـ ${rows.length} عميل عليهم مديونية، بتاريخ ${dstr(fromSerial(g0))}. المحصّل بيشوفها ويسجل التحصيل بس، ومفيش أي تحكم في المديونية.</div>
+ <span class="mut">رقم واتساب بتاعك (عشان التحصيلات توصلك)</span><input type="tel" inputmode="numeric" placeholder="مثال: 201001234567" value="${ownerPhone()}" onchange="savePh(this.value)">
+ <textarea id="lkU" class="ta" readonly rows="4" style="direction:ltr;font-size:12px">جاري التجهيز...</textarea>
+ <div class="g"><button onclick="lkShare()">📤 مشاركة الرابط</button><button class="alt" onclick="lkCopy()">📋 نسخ</button></div>
+ <div class="mut" style="margin-top:8px">⚠ أي حد معاه الرابط يشوف الأسماء والمديونيات. الرابط بينتهي بعد 7 أيام، واعمل رابط جديد كل ما الأرقام تتغير.</div></div>`;
+ const tok=await encTok({v:1,g:g0,x:g0+7,p:ownerPhone(),r:rows});lkURL=new URL("collector.html",location.href).href+"#d="+tok;
+ if(curV==="link"&&$("lkU"))$("lkU").value=lkURL}
+async function lkShare(){if(!lkURL)return;try{if(navigator.share)await navigator.share({title:"قائمة التحصيل",text:"رابط قائمة العملاء لتسجيل التحصيل:",url:lkURL});else lkCopy()}catch(e){}}
+async function lkCopy(){try{await navigator.clipboard.writeText(lkURL);toast("اتنسخ الرابط ✔")}catch(e){$("lkU").select();toast("حدّد النص وانسخه")}}
+function colOf(ds){const sm=monthOf(dateCols[0]);if(!sm||!aligned())return -1;const d=fromSerial(ds);if(!d||d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m)return -1;return d.getUTCDate()-1}
+let impRows=[],impWho="";
+function importPage(){curV="import";impRows=[];
+ $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">📥 ترحيل تحصيلات المحصّل</h3><div class="mut">الصق رسالة الواتساب كاملة اللي بعتهالك المحصّل (بما فيها السطر اللي فيه #DBT)</div><textarea id="impT" class="ta" rows="7" placeholder="الصق الرسالة هنا"></textarea><button onclick="impRead()">قراءة الرسالة</button></div><div id="impOut"></div>`}
+async function importedIds(){try{const r=await g("/worksheets('CollectorLog')/usedRange?$select=values");return new Set(r.values.slice(1).map(x=>String(x[0])))}catch(e){return new Set()}}
+async function impRead(){const m=($("impT").value||"").match(/#DBT:([pz]\.[A-Za-z0-9_-]+)/);if(!m)return toast("مش لاقي كود التحصيلات في الرسالة");
+ try{const o=await decTok(m[1]),done=await importedIds();impWho=o.c||"";
+  impRows=o.e.map(e=>{const[id,n,a,d,note]=e,c=customers.find(x=>x.n===String(n).trim()),k=c?colOf(d):-1;let st="ok";
+   if(!c)st="العميل مش موجود";else if(!(a>0))st="مبلغ غلط";else if(done.has(String(id)))st="اتحوّل قبل كده";else if(k<0)st="التاريخ برة شهر الشيت";return{id:String(id),n:String(n).trim(),a:+a,d,note,c,k,st}});impShow()}
+ catch(e){toast("الكود تالف: "+(e.message||e))}}
+function impShow(){const ok=impRows.filter(r=>r.st==="ok"),tot=ok.reduce((t,r)=>t+r.a,0);
+ $("impOut").innerHTML=`<div class="card"><b>المحصّل: ${impWho||"-"}</b><div class="row"><span>تحصيلات صالحة للترحيل</span><b>${ok.length} من ${impRows.length}</b></div><div class="row"><span>إجمالي الصالح</span><b class="gn">${fmt(tot)}</b></div>
+ ${impRows.map(r=>`<div class="row"><span>${r.n} <span class="mut">${dstr(fromSerial(r.d)).slice(0,5)}</span></span><span><b>${fmt(r.a)}</b> ${r.st==="ok"?"✔":`<span class="red">${r.st}</span>`}</span></div>`).join("")}
+ ${ok.length?`<button onclick="impCommit()">✅ ترحيل ${ok.length} تحصيل</button>`:""}</div>`}
+function impCommit(){const ok=impRows.filter(r=>r.st==="ok");if(!ok.length)return;const grp={};
+ ok.forEach(r=>{const key=r.c.row+"|"+r.k;grp[key]=grp[key]||{c:r.c,k:r.k,a:0};grp[key].a+=r.a});
+ Object.values(grp).forEach(x=>{const v=(x.c.pay[x.k]||0)+x.a,row=x.c.row,k=x.k;x.c.pay[k]=v;enqueue(()=>put(colL(6+k)+row,[[v]]))});
+ const who=impWho,td=dstr(fromSerial(serial(new Date()))),rows=ok.map(r=>[r.id,dstr(fromSerial(r.d)),r.n,r.a,who,td]);
+ enqueue(()=>sheetAppend("CollectorLog",["رقم الحركة","تاريخ التحصيل","العميل","المبلغ","المحصّل","تاريخ الترحيل"],rows,["@","@","@","General","@","@"]));
+ toast("اترحّل "+ok.length+" تحصيل ✔");history.back()}
 // تحديث تلقائي: كل دقيقة، ولما ترجع للتطبيق
 async function autoRefresh(){if(document.hidden||pend>0||dirty||!msalApp||!msalApp.getAllAccounts().length)return;
  const t=document.activeElement&&document.activeElement.tagName;if(t==="INPUT"||t==="SELECT")return;
@@ -315,7 +361,8 @@ async function autoRefresh(){if(document.hidden||pend>0||dirty||!msalApp||!msalA
  if(v==="cust"&&!customers.includes(cur)){toast("العميل اتغير أو اتحذف من الشيت");return history.back()}
  draw(v,true)}
 setInterval(autoRefresh,60000);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)autoRefresh()});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){if(pend===0)closeSess()}else(async()=>{if(!sid&&msalApp&&msalApp.getAllAccounts().length)await session();autoRefresh()})()});
+window.addEventListener("pagehide",()=>{if(pend===0)closeSess()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 (async()=>{$("today").textContent=new Date().toLocaleDateString("en-GB");if(!msalApp)return;
  try{await msalApp.handleRedirectPromise()}catch(e){}
