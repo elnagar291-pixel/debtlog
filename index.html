@@ -92,10 +92,10 @@ async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
 function sumDay(ds){const k=findCol(ds);return ds&&k>=0?customers.reduce((a,c)=>a+(c.pay[k]||0),0):0}
 // ===== التنقل =====
-const LV={home:0,customers:1,coll:1,add:2,cust:2,hist:3};let curV="home";
+const LV={home:0,customers:1,coll:1,add:2,cust:2,hist:3,adddebt:3};let curV="home";
 function hp(v){history.pushState({v},"");curV=v}
 function draw(v,refresh){v==="customers"?(refresh?list():custPage()):v==="coll"?collPage():v==="cust"?openC(cur):render()}
-async function show(v,reload){dirty=false;if(v==="add")v="customers";if(v==="hist")v="cust";if(v==="cust"&&!cur)v="customers";curV=v;draw(v);
+async function show(v,reload){dirty=false;if(v==="add")v="customers";if(v==="hist"||v==="adddebt")v="cust";if(v==="cust"&&!cur)v="customers";curV=v;draw(v);
  if(reload){try{await load()}catch(e){syncErr=true;setSync();return toast("تعذر التحديث: "+e.message)}
   if(curV!==v)return;if(v!=="customers"&&dirty)return;draw(v,true)}}
 async function nav(v){hp(v);await show(v,true)}
@@ -135,9 +135,8 @@ function openC(c){dirty=false;cur=c;const bn=bounds();const s=stat(c);
  <div class="row"><span>المديونية</span><b>${fmt(c.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
  <div class="card"><span class="mut">تاريخ الدفعة</span><input id="dt" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ">
  <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div>
- <div class="card"><b>➕ إضافة مديونية</b><br><span class="mut">تاريخ الزيادة</span><input id="adD" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}><input id="adA" type="number" inputmode="decimal" placeholder="المبلغ"><input id="adN" placeholder="ملاحظة (رقم الفاتورة مثلًا)"><button class="alt" onclick="addDebt()">إضافة للمديونية</button></div>
  <div class="card"><b>تعديل بيانات العميل</b><br><span class="mut">المديونية</span><input id="ed" type="number" inputmode="decimal" value="${c.debt}"><span class="mut">تاريخ الاستحقاق</span><input id="eds" type="date" value="${c.d?c.d.toISOString().slice(0,10):""}"><button onclick="saveCust()">حفظ التعديل</button></div>
- <button class="alt" onclick="hp('hist');histPage()">📋 سجل الدفعات</button><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
+ <div class="g"><button class="alt" onclick="hp('adddebt');debtForm()">➕ إضافة مديونية</button><button class="alt" onclick="hp('hist');histPage()">📋 سجل الدفعات</button></div><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
 function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=cur,row=c.row;
  if(type==="DN"){c.dn+=a;const v=c.dn;enqueue(()=>put(colL(LAY.act+1)+row,[[v]]))}
  else{const dv=$("dt").value||ymd(new Date()),ds=serialY(dv);const k=writeCol(ds);if(k<0)return;
@@ -170,22 +169,24 @@ const put2=(sh,a,v)=>g("/worksheets('"+sh+"')/range(address='"+a+"')",{method:"P
 async function sheetAppend(sh,head,rows,fm){if(!rows.length)return;let n=0;
  try{const u=await g("/worksheets('"+sh+"')/usedRange?$select=address");n=/:/.test(u.address)?+String(u.address).match(/(\d+)$/)[1]:0}
  catch(e){await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:sh})})}
- if(n===0){await put2(sh,"A1:"+colL(head.length)+"1",[head]);n=1}
+ if(n===0)n=1;await put2(sh,"A1:"+colL(head.length)+"1",[head]);
  const addr="A"+(n+1)+":"+colL(head.length)+(n+rows.length);
  if(fm)await g("/worksheets('"+sh+"')/range(address='"+addr+"')",{method:"PATCH",body:JSON.stringify({numberFormat:rows.map(()=>fm)})});
  await put2(sh,addr,rows)}
-const archiveAppend=rows=>sheetAppend("Archive",["الشهر","العميل","النوع","التاريخ","المبلغ","ملاحظة / المتبقي بعد"],rows,["@","@","@","@","General","General"]);
+const archiveAppend=rows=>sheetAppend("Archive",["الشهر","العميل","النوع","التاريخ","المبلغ","ملاحظة / المتبقي بعد","الاستحقاق"],rows,["@","@","@","@","General","General","@"]);
 const dd=x=>typeof x==="number"?dstr(fromSerial(x)):(x||"");
 const lb=x=>{if(typeof x==="number"){const m=monthOf(x);return m?m.y+"-"+String(m.m).padStart(2,"0"):String(x)}return String(x).trim()};
-async function loadAdds(){try{const r=await g("/worksheets('DebtAdds')/usedRange?$select=values");return r.values.slice(1).filter(x=>x[1]!=="").map(x=>[lb(x[0]),x[1],dd(x[2]),x[3],x[4]])}catch(e){return[]}}
+async function loadAdds(){try{const r=await g("/worksheets('DebtAdds')/usedRange?$select=values");return r.values.slice(1).filter(x=>x[1]!=="").map(x=>[lb(x[0]),x[1],dd(x[2]),x[3],x[4],dd(x[5])])}catch(e){return[]}}
 const curLab=()=>{const sm=monthOf(dateCols[0]);return sm?sm.y+"-"+String(sm.m).padStart(2,"0"):""};
+function debtForm(){const bn=bounds(),c=cur;
+ $("app").innerHTML=`<div class="card"><h3 style="margin:0">➕ إضافة مديونية</h3><b>${c.n}</b><div class="mut">المديونية الحالية ${fmt(c.debt)}</div><span class="mut">تاريخ الزيادة</span><input id="adD" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}><input id="adA" type="number" inputmode="decimal" placeholder="المبلغ"><span class="mut">تاريخ استحقاق الزيادة</span><input id="adU" type="date" value="${c.d?c.d.toISOString().slice(0,10):selDate}"><input id="adN" placeholder="ملاحظة (رقم الفاتورة مثلًا)"><button class="alt" onclick="addDebt()">إضافة للمديونية</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 function addDebt(){const a=parseFloat($("adA").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=cur,sm=monthOf(dateCols[0]);
  if(!sm||!aligned())return toast("اضغط ⚙ تهيئة الشهر من الرئيسية الأول");
  const dv=$("adD").value||ymd(new Date()),d=fromSerial(serialY(dv));
  if(d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m)return toast("التاريخ ده برة شهر "+sm.m+"/"+sm.y+" الحالي في الشيت");
- const note=$("adN").value.trim(),lab=curLab(),row=c.row;c.debt+=a;const nd=c.debt;
- enqueue(async()=>{await put("E"+row,[[nd]]);await sheetAppend("DebtAdds",["الشهر","العميل","التاريخ","المبلغ","ملاحظة"],[[lab,c.n,dstr(d),a,note]],["@","@","@","General","General"])});
- toast("اتزودت المديونية ✔");openC(c)}
+ const note=$("adN").value.trim(),uv=$("adU").value,due=uv?dstr(fromSerial(serialY(uv))):"",lab=curLab(),row=c.row;c.debt+=a;const nd=c.debt;
+ enqueue(async()=>{await put("E"+row,[[nd]]);await sheetAppend("DebtAdds",["الشهر","العميل","التاريخ","المبلغ","ملاحظة","الاستحقاق"],[[lab,c.n,dstr(d),a,note,due]],["@","@","@","General","General","@"])});
+ toast("اتزودت المديونية ✔");history.back()}
 async function backupFile(lab){const t=await token(),H={Authorization:"Bearer "+t};
  const r=await fetch("https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/content",{headers:H});
  if(!r.ok)throw new Error("download "+r.status);const b=await r.blob();if(!b.size)throw new Error("empty");
@@ -208,15 +209,15 @@ async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة 
   step="النسخة الاحتياطية";toast("جاري عمل نسخة احتياطية...");await new Promise(r=>setTimeout(r,2500));const bk=await backup(lab);step="الأرشفة";
   const t=x=>dstr(fromSerial(x)),rows=[],first=t(ser3(sm.y,sm.m,1)),last=t(ser3(sm.y,sm.m,monthLen(sm.y,sm.m)));
   const adds=(await loadAdds()).filter(x=>x[0]===lab);
-  customers.forEach(c=>{const st=stat(c),ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);rows.push([lab,c.n,"افتتاح",first,c.debt-sa,""]);ad.forEach(x=>rows.push([lab,c.n,"زيادة مديونية",x[2],+x[3]||0,x[4]||""]));c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest])});
+  customers.forEach(c=>{const st=stat(c),ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);rows.push([lab,c.n,"افتتاح",first,c.debt-sa,"",dstr(c.d)]);ad.forEach(x=>rows.push([lab,c.n,"زيادة مديونية",x[2],+x[3]||0,x[4]||"",x[5]||""]));c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,"",""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,"",""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest,""])});
   await archiveAppend(rows);
   step="ترحيل المتبقي";const E=[],D=[];for(let r=4;r<=73;r++){const c=customers.find(x=>x.row===r);E.push([c?stat(c).rest:""]);D.push([""])}
   const dc=colL(LAY.act+1);await put("E4:E73",E);step="مسح DN";await put(dc+"4:"+dc+"73",D);
   step="بدء الشهر الجديد";await writeMonth(nx,null);
-  step="تنظيف الأرشيف";const ci=sm.y*12+sm.m-1-2,cut=Math.floor(ci/12)+"-"+String(ci%12+1).padStart(2,"0"),pr=(await pruneSheet("Archive",6,cut))+(await pruneSheet("DebtAdds",5,cut));
+  step="تنظيف الأرشيف";const ci=sm.y*12+sm.m-1-2,cut=Math.floor(ci/12)+"-"+String(ci%12+1).padStart(2,"0"),pr=(await pruneSheet("Archive",7,cut))+(await pruneSheet("DebtAdds",6,cut));
   await load(true);render();toast("اتقفل الشهر ✔ · نسخة احتياطية ("+bk+")"+(pr?" · اتمسح "+pr+" صف قديم من الأرشيف":""))}
  catch(e){toast("وقف عند ("+step+"): "+e.message+" — راجع الشيت وورقة Archive قبل ما تكمل")}}
-async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name).map(x=>[lb(x[0]),x[1],x[2],dd(x[3]),x[4],x[5]])}catch(e){return[]}}
+async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name).map(x=>[lb(x[0]),x[1],x[2],dd(x[3]),x[4],x[5],dd(x[6])])}catch(e){return[]}}
 const ty=x=>x[2]+(x[2]==="زيادة مديونية"&&x[5]?" ("+x[5]+")":"");
 function archBlocks(rows,pdf){const by={};rows.forEach(x=>(by[x[0]]=by[x[0]]||[]).push(x));const td="padding:7px 9px;border:1px solid #bbb;text-align:center";
  return Object.keys(by).sort().reverse().map(l=>{const t=by[l];
@@ -228,15 +229,34 @@ function histPage(){const c=cur,s=stat(c),rows=[];
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">سجل دفعات ${c.n}</h3><div class="row"><span>المديونية</span><b>${fmt(c.debt)}</b></div>${lines||'<div class="mut" style="padding:8px 0">مفيش دفعات مسجلة</div>'}<div class="row"><span>إجمالي المدفوع (${rows.length} دفعة)</span><b class="gn">${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div><div class="g"><button onclick="pdfShare()">📤 مشاركة (واتساب)</button><button class="alt" onclick="pdfSave()">⬇ حفظ PDF</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 // ===== تقرير PDF =====
 function loadJS(u){return new Promise((ok,no)=>{if(document.querySelector('script[src="'+u+'"]'))return ok();const e=document.createElement("script");e.src=u;e.onload=ok;e.onerror=()=>no(new Error("تعذر تحميل مكتبة PDF، تأكد من النت"));document.head.appendChild(e)})}
-function reportHTML(c,arch,adds){const s=stat(c),rows=[];c.pay.forEach((a,k)=>{if(a>0)rows.push({k,a,d:dateCols[k]})});rows.sort((x,y)=>(x.d||1e9)-(y.d||1e9)||x.k-y.k);let run=0;
- const td="padding:9px 10px;border:1px solid #bbb;text-align:center";
- const body=rows.map((r,i)=>{run+=r.a;return `<tr><td style="${td}">${i+1}</td><td style="${td}">${r.d?dstr(fromSerial(r.d)):"بدون تاريخ"}</td><td style="${td};font-weight:bold">${fmt(r.a)}</td><td style="${td}">${fmt(run)}</td></tr>`}).join("")||`<tr><td colspan="4" style="${td}">مفيش دفعات مسجلة</td></tr>`;
- const sm=(l,v,c2)=>`<tr><td style="${td};background:#f1f5f4;font-weight:bold">${l}</td><td style="${td};font-weight:bold;color:${c2||"#111"}">${fmt(v)}</td></tr>`;
+function ledger(c,arch,adds){const L=[],cl=curLab(),sm=monthOf(dateCols[0]);let open=null,openDue=c.d?dstr(c.d):"";
+ const prev=(arch||[]).filter(x=>x[0]!==cl),months=[...new Set(prev.map(x=>x[0]))].sort();
+ months.forEach((m,mi)=>{const [y,mo]=m.split("-").map(Number),end=ser3(y,mo,monthLen(y,mo));
+  prev.filter(x=>x[0]===m).forEach(x=>{const t=x[2];
+   if(t==="افتتاح"){if(mi===0){open=+x[4]||0;openDue=x[6]||""}}
+   else if(t==="زيادة مديونية")L.push({d:parseD(x[3]),o:0,t:"زيادة مديونية"+(x[5]?" — "+x[5]:""),db:+x[4]||0,cr:0,due:x[6]||""});
+   else if(t==="دفعة")L.push({d:parseD(x[3]),o:1,t:"دفعة",db:0,cr:+x[4]||0,due:""});
+   else if(t==="DN")L.push({d:end,o:2,t:"إشعار خصم DN",db:0,cr:+x[4]||0,due:""})})});
+ let sa=0;(adds||[]).forEach(x=>{sa+=+x[3]||0;L.push({d:parseD(x[2]),o:0,t:"زيادة مديونية"+(x[4]?" — "+x[4]:""),db:+x[3]||0,cr:0,due:x[5]||""})});
+ c.pay.forEach((a,k)=>{if(a>0)L.push({d:dateCols[k]||9e9,o:1,t:"دفعة",db:0,cr:a,due:""})});
+ if(c.dn)L.push({d:sm?ser3(sm.y,sm.m,monthLen(sm.y,sm.m)):9e9,o:2,t:"إشعار خصم DN",db:0,cr:c.dn,due:""});
+ if(open===null)open=c.debt-sa;
+ L.sort((a,b)=>a.d-b.d||a.o-b.o);let bal=open,td=0,tc=0;L.forEach(x=>{bal+=x.db-x.cr;x.bal=bal;td+=x.db;tc+=x.cr});
+ return{open,openDue,L,td,tc,bal}}
+function reportHTML(c,arch,adds){const g2=ledger(c,arch,adds),td="padding:8px 6px;border:1px solid #bbb;text-align:center;font-size:14px";
+ const dt=x=>x&&x<9e8?dstr(fromSerial(x)):"";
+ const body=g2.L.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${dt(x.d)}</td><td style="${td};text-align:right">${x.t}</td><td style="${td};color:#b45309;font-weight:bold">${x.db?fmt(x.db):""}</td><td style="${td};color:#15803d;font-weight:bold">${x.cr?fmt(x.cr):""}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td><td style="${td}">${x.due||""}</td></tr>`).join("");
+ const fi=dt(g2.L.length?g2.L[0].d:0),la=dt(g2.L.length?g2.L[g2.L.length-1].d:0);
  return `<div style="direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#111;background:#fff;padding:36px;width:794px;box-sizing:border-box">
  <div style="text-align:center;font-size:26px;font-weight:bold;color:#0f766e;border-bottom:3px solid #0f766e;padding-bottom:10px">كشف حساب عميل</div>
- <table style="width:100%;margin:18px 0;font-size:17px"><tr><td><b>العميل:</b> ${c.n}</td><td><b>المنطقة:</b> ${c.a||"-"}</td></tr><tr><td><b>تاريخ الاستحقاق:</b> ${dstr(c.d)||"-"}</td><td><b>تاريخ الكشف:</b> ${dstr(fromSerial(serial(new Date())))}</td></tr></table>
- <table style="width:100%;border-collapse:collapse;font-size:16px"><tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">التاريخ</th><th style="${td}">الدفعة</th><th style="${td}">التراكمي</th></tr>${body}</table>
- ${adds&&adds.length?`<div style="margin-top:18px;font-size:17px;font-weight:bold;color:#b45309">زيادات المديونية</div><table style="width:100%;border-collapse:collapse;font-size:15px">${adds.map(x=>`<tr><td style="${td}">${x[2]}</td><td style="${td};font-weight:bold">${fmt(x[3])}</td><td style="${td}">${x[4]||""}</td></tr>`).join("")}</table>`:""}<table style="width:60%;margin:22px 0 0;border-collapse:collapse;font-size:17px">${sm("المديونية"+(adds&&adds.length?" (شاملة الزيادات)":""),c.debt)}${sm("إجمالي المدفوع ("+rows.length+" دفعة)",s.p,"#15803d")}${sm("إشعار خصم DN",s.dn)}${sm("المتبقي",s.rest,"#b91c1c")}</table>${arch&&arch.length?archBlocks(arch,true):""}</div>`}
+ <table style="width:100%;margin:16px 0;font-size:17px"><tr><td><b>العميل:</b> ${c.n}</td><td><b>المنطقة:</b> ${c.a||"-"}</td></tr><tr><td><b>تاريخ الاستحقاق:</b> ${dstr(c.d)||"-"}</td><td><b>تاريخ الكشف:</b> ${dstr(fromSerial(serial(new Date())))}</td></tr></table>
+ <table style="width:100%;border-collapse:collapse"><colgroup><col style="width:5%"><col style="width:14%"><col style="width:29%"><col style="width:13%"><col style="width:13%"><col style="width:13%"><col style="width:13%"></colgroup>
+ <tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">التاريخ</th><th style="${td}">البيان</th><th style="${td}">مدين</th><th style="${td}">دائن</th><th style="${td}">الرصيد</th><th style="${td}">الاستحقاق</th></tr>
+ <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>رصيد أول المدة</b></td><td style="${td}"></td><td style="${td}"></td><td style="${td};font-weight:bold">${fmt(g2.open)}</td><td style="${td}">${g2.openDue}</td></tr>
+ ${body}
+ <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>الإجمالي</b></td><td style="${td};font-weight:bold;color:#b45309">${fmt(g2.td)}</td><td style="${td};font-weight:bold;color:#15803d">${fmt(g2.tc)}</td><td style="${td};font-weight:bold;color:#b91c1c">${fmt(g2.bal)}</td><td style="${td}"></td></tr></table>
+ <div style="margin-top:18px;font-size:19px;font-weight:bold">الرصيد المستحق: <span style="color:#b91c1c">${fmt(g2.bal)}</span></div>
+ <div style="margin-top:6px;font-size:13px;color:#667">مدين = زيادة في المديونية · دائن = دفعات وإشعارات خصم</div></div>`}
 let pdfCache=null;
 async function buildPDF(){const c=cur,arch=await loadArch(c.n),adds=(await loadAdds()).filter(x=>String(x[1]).trim()===c.n&&x[0]===curLab()),key=c.row+"|"+c.n+"|"+c.pay.join(",")+"|"+c.dn+"|"+c.debt+"|"+dateCols.join(",")+"|"+arch.length+"|"+adds.length+"|"+adds.map(x=>x[3]).join(",");
  if(pdfCache&&pdfCache.key===key)return pdfCache.blob;
