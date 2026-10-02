@@ -218,7 +218,8 @@ async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة 
   await load(true);render();toast("اتقفل الشهر ✔ · نسخة احتياطية ("+bk+")"+(pr?" · اتمسح "+pr+" صف قديم من الأرشيف":""))}
  catch(e){toast("وقف عند ("+step+"): "+e.message+" — راجع الشيت وورقة Archive قبل ما تكمل")}}
 async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name).map(x=>[lb(x[0]),x[1],x[2],dd(x[3]),x[4],x[5],dd(x[6])])}catch(e){return[]}}
-const ty=x=>x[2]+(x[2]==="زيادة مديونية"&&x[5]?" ("+x[5]+")":"");
+const TY={"زيادة مديونية":"فاتورة جديدة","دفعة":"تحصيل","DN":"إشعار خصم"};
+const ty=x=>(TY[x[2]]||x[2])+(x[2]==="زيادة مديونية"&&x[5]?" ("+x[5]+")":"");
 function archBlocks(rows,pdf){const by={};rows.forEach(x=>(by[x[0]]=by[x[0]]||[]).push(x));const td="padding:7px 9px;border:1px solid #bbb;text-align:center";
  return Object.keys(by).sort().reverse().map(l=>{const t=by[l];
   return pdf?`<div style="margin-top:20px;font-size:17px;font-weight:bold;color:#0f766e">شهر ${l}</div><table style="width:100%;border-collapse:collapse;font-size:15px">${t.map(x=>`<tr><td style="${td}">${ty(x)}</td><td style="${td}">${x[3]||""}</td><td style="${td};font-weight:bold">${fmt(x[4])}</td></tr>`).join("")}</table>`
@@ -234,18 +235,18 @@ function ledger(c,arch,adds){const L=[],cl=curLab(),sm=monthOf(dateCols[0]);let 
  months.forEach((m,mi)=>{const [y,mo]=m.split("-").map(Number),end=ser3(y,mo,monthLen(y,mo));
   prev.filter(x=>x[0]===m).forEach(x=>{const t=x[2];
    if(t==="افتتاح"){if(mi===0){open=+x[4]||0;openDue=x[6]||""}}
-   else if(t==="زيادة مديونية")L.push({d:parseD(x[3]),o:0,t:"زيادة مديونية"+(x[5]?" — "+x[5]:""),db:+x[4]||0,cr:0,due:x[6]||""});
-   else if(t==="دفعة")L.push({d:parseD(x[3]),o:1,t:"دفعة",db:0,cr:+x[4]||0,due:""});
-   else if(t==="DN")L.push({d:end,o:2,t:"إشعار خصم DN",db:0,cr:+x[4]||0,due:""})})});
- let sa=0;(adds||[]).forEach(x=>{sa+=+x[3]||0;L.push({d:parseD(x[2]),o:0,t:"زيادة مديونية"+(x[4]?" — "+x[4]:""),db:+x[3]||0,cr:0,due:x[5]||""})});
- c.pay.forEach((a,k)=>{if(a>0)L.push({d:dateCols[k]||9e9,o:1,t:"دفعة",db:0,cr:a,due:""})});
- if(c.dn)L.push({d:sm?ser3(sm.y,sm.m,monthLen(sm.y,sm.m)):9e9,o:2,t:"إشعار خصم DN",db:0,cr:c.dn,due:""});
+   else if(t==="زيادة مديونية")L.push({d:parseD(x[3]),o:0,t:"فاتورة جديدة"+(x[5]?" — "+x[5]:""),db:+x[4]||0,cr:0,due:x[6]||""});
+   else if(t==="دفعة")L.push({d:parseD(x[3]),o:1,t:"تحصيل",db:0,cr:+x[4]||0,due:""});
+   else if(t==="DN")L.push({d:end,o:2,nd:1,t:"إشعار خصم",db:0,cr:+x[4]||0,due:""})})});
+ let sa=0;(adds||[]).forEach(x=>{sa+=+x[3]||0;L.push({d:parseD(x[2]),o:0,t:"فاتورة جديدة"+(x[4]?" — "+x[4]:""),db:+x[3]||0,cr:0,due:x[5]||""})});
+ c.pay.forEach((a,k)=>{if(a>0)L.push({d:dateCols[k]||9e9,o:1,t:"تحصيل",db:0,cr:a,due:""})});
+ if(c.dn)L.push({d:sm?ser3(sm.y,sm.m,monthLen(sm.y,sm.m)):9e9,o:2,nd:1,t:"إشعار خصم",db:0,cr:c.dn,due:""});
  if(open===null)open=c.debt-sa;
  L.sort((a,b)=>a.d-b.d||a.o-b.o);let bal=open,td=0,tc=0;L.forEach(x=>{bal+=x.db-x.cr;x.bal=bal;td+=x.db;tc+=x.cr});
  return{open,openDue,L,td,tc,bal}}
 function reportHTML(c,arch,adds){const g2=ledger(c,arch,adds),td="padding:8px 6px;border:1px solid #bbb;text-align:center;font-size:14px";
  const dt=x=>x&&x<9e8?dstr(fromSerial(x)):"";
- const body=g2.L.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${dt(x.d)}</td><td style="${td};text-align:right">${x.t}</td><td style="${td};color:#b45309;font-weight:bold">${x.db?fmt(x.db):""}</td><td style="${td};color:#15803d;font-weight:bold">${x.cr?fmt(x.cr):""}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td><td style="${td}">${x.due||""}</td></tr>`).join("");
+ const body=g2.L.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td}">${x.nd?"":dt(x.d)}</td><td style="${td};text-align:right">${x.t}</td><td style="${td};color:#b45309;font-weight:bold">${x.db?fmt(x.db):""}</td><td style="${td};color:#15803d;font-weight:bold">${x.cr?fmt(x.cr):""}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td><td style="${td}">${x.due||""}</td></tr>`).join("");
  const fi=dt(g2.L.length?g2.L[0].d:0),la=dt(g2.L.length?g2.L[g2.L.length-1].d:0);
  return `<div style="direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#111;background:#fff;padding:36px;width:794px;box-sizing:border-box">
  <div style="text-align:center;font-size:26px;font-weight:bold;color:#0f766e;border-bottom:3px solid #0f766e;padding-bottom:10px">كشف حساب عميل</div>
@@ -256,7 +257,7 @@ function reportHTML(c,arch,adds){const g2=ledger(c,arch,adds),td="padding:8px 6p
  ${body}
  <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>الإجمالي</b></td><td style="${td};font-weight:bold;color:#b45309">${fmt(g2.td)}</td><td style="${td};font-weight:bold;color:#15803d">${fmt(g2.tc)}</td><td style="${td};font-weight:bold;color:#b91c1c">${fmt(g2.bal)}</td><td style="${td}"></td></tr></table>
  <div style="margin-top:18px;font-size:19px;font-weight:bold">الرصيد المستحق: <span style="color:#b91c1c">${fmt(g2.bal)}</span></div>
- <div style="margin-top:6px;font-size:13px;color:#667">مدين = زيادة في المديونية · دائن = دفعات وإشعارات خصم</div></div>`}
+ <div style="margin-top:6px;font-size:13px;color:#667">مدين = فواتير جديدة · دائن = تحصيلات وإشعارات خصم (بتنزل من المديونية)</div></div>`}
 let pdfCache=null;
 async function htmlToPdf(html){toast("جاري تجهيز الملف...");
  await loadJS("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");await loadJS("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
@@ -273,15 +274,15 @@ function dayReportHTML(ds,adds){const k=findCol(ds),R=[],td="padding:9px 8px;bor
  customers.forEach(c=>{const p=k>=0?c.pay[k]:0;if(!(p>0))return;
   const ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);let bal=c.debt-sa;
   ad.forEach(x=>{if(parseD(x[2])<=ds)bal+=+x[3]||0});c.pay.forEach((q,j)=>{if(q>0&&dateCols[j]&&dateCols[j]<=ds)bal-=q});R.push({n:c.n,a:c.a,p,bal,dn:c.dn})});
- const tp=R.reduce((t,x)=>t+x.p,0),tb=R.reduce((t,x)=>t+x.bal,0);
- const body=R.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td};text-align:right;font-weight:bold">${x.n}</td><td style="${td}">${x.a||""}</td><td style="${td};color:#15803d;font-weight:bold">${fmt(x.p)}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td></tr>`).join("")||`<tr><td colspan="5" style="${td}">مفيش تحصيلات في اليوم ده</td></tr>`;
+ const tp=R.reduce((t,x)=>t+x.p,0);
+ const body=R.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td};text-align:right;font-weight:bold">${x.n}</td><td style="${td}">${x.a||""}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td><td style="${td};color:#15803d;font-weight:bold">${fmt(x.p)}</td></tr>`).join("")||`<tr><td colspan="5" style="${td}">مفيش تحصيلات في اليوم ده</td></tr>`;
  return `<div style="direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#111;background:#fff;padding:36px;width:794px;box-sizing:border-box">
  <div style="text-align:center;font-size:26px;font-weight:bold;color:#0f766e;border-bottom:3px solid #0f766e;padding-bottom:10px">تقرير التحصيل اليومي</div>
  <table style="width:100%;margin:16px 0;font-size:18px"><tr><td><b>التاريخ:</b> ${dstr(fromSerial(ds))}</td><td><b>عدد العملاء:</b> ${R.length}</td><td><b>إجمالي التحصيل:</b> <span style="color:#15803d;font-weight:bold">${fmt(tp)}</span></td></tr></table>
- <table style="width:100%;border-collapse:collapse"><colgroup><col style="width:6%"><col style="width:32%"><col style="width:18%"><col style="width:20%"><col style="width:24%"></colgroup>
- <tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">العميل</th><th style="${td}">المنطقة</th><th style="${td}">الدفعة</th><th style="${td}">المديونية بعد التحصيل</th></tr>
+ <table style="width:100%;border-collapse:collapse"><colgroup><col style="width:6%"><col style="width:32%"><col style="width:18%"><col style="width:24%"><col style="width:20%"></colgroup>
+ <tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">العميل</th><th style="${td}">المنطقة</th><th style="${td}">المديونية بعد التحصيل</th><th style="${td}">التحصيل</th></tr>
  ${body}
- <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>الإجمالي</b></td><td style="${td};font-weight:bold;color:#15803d">${fmt(tp)}</td><td style="${td};font-weight:bold;color:#b91c1c">${fmt(tb)}</td></tr></table>
+ <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>الإجمالي</b></td><td style="${td}"></td><td style="${td};font-weight:bold;color:#15803d">${fmt(tp)}</td></tr></table>
  ${R.some(x=>x.dn>0)?'<div style="margin-top:10px;font-size:13px;color:#667">المديونية بعد التحصيل لا تشمل إشعارات خصم DN.</div>':""}</div>`}
 let dayCache=null;
 async function dayPdf(share){const ds=serialY(selDate),name="تقرير تحصيل "+dstr(fromSerial(ds)).replace(/\//g,"-")+".pdf";
