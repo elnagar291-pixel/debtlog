@@ -167,35 +167,56 @@ async function setupSheet(){const sm=monthOf(dateCols.find(x=>x))||monthOf(seria
   const{out,bad}=realign(sm);if(bad.length)return toast("فيه دفعات من غير تاريخ أو من شهر تاني: "+bad.slice(0,3).join("، "));
   await writeMonth(sm,out);await load(true);render();toast("اتهيّأ الشيت ✔")}catch(e){toast("حصل خطأ: "+e.message)}}
 const put2=(sh,a,v)=>g("/worksheets('"+sh+"')/range(address='"+a+"')",{method:"PATCH",body:JSON.stringify({values:v})});
-async function sheetAppend(sh,head,rows){if(!rows.length)return;let n=0;
+async function sheetAppend(sh,head,rows,fm){if(!rows.length)return;let n=0;
  try{const u=await g("/worksheets('"+sh+"')/usedRange?$select=address");n=/:/.test(u.address)?+String(u.address).match(/(\d+)$/)[1]:0}
  catch(e){await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:sh})})}
  if(n===0){await put2(sh,"A1:"+colL(head.length)+"1",[head]);n=1}
- await put2(sh,"A"+(n+1)+":"+colL(head.length)+(n+rows.length),rows)}
-const archiveAppend=rows=>sheetAppend("Archive",["الشهر","العميل","النوع","التاريخ","المبلغ","ملاحظة / المتبقي بعد"],rows);
-async function loadAdds(){try{const r=await g("/worksheets('DebtAdds')/usedRange?$select=values");return r.values.slice(1).filter(x=>x[1]!=="")}catch(e){return[]}}
+ const addr="A"+(n+1)+":"+colL(head.length)+(n+rows.length);
+ if(fm)await g("/worksheets('"+sh+"')/range(address='"+addr+"')",{method:"PATCH",body:JSON.stringify({numberFormat:rows.map(()=>fm)})});
+ await put2(sh,addr,rows)}
+const archiveAppend=rows=>sheetAppend("Archive",["الشهر","العميل","النوع","التاريخ","المبلغ","ملاحظة / المتبقي بعد"],rows,["@","@","@","@","General","General"]);
+const dd=x=>typeof x==="number"?dstr(fromSerial(x)):(x||"");
+const lb=x=>{if(typeof x==="number"){const m=monthOf(x);return m?m.y+"-"+String(m.m).padStart(2,"0"):String(x)}return String(x).trim()};
+async function loadAdds(){try{const r=await g("/worksheets('DebtAdds')/usedRange?$select=values");return r.values.slice(1).filter(x=>x[1]!=="").map(x=>[lb(x[0]),x[1],dd(x[2]),x[3],x[4]])}catch(e){return[]}}
 const curLab=()=>{const sm=monthOf(dateCols[0]);return sm?sm.y+"-"+String(sm.m).padStart(2,"0"):""};
 function addDebt(){const a=parseFloat($("adA").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=cur,sm=monthOf(dateCols[0]);
  if(!sm||!aligned())return toast("اضغط ⚙ تهيئة الشهر من الرئيسية الأول");
  const dv=$("adD").value||ymd(new Date()),d=fromSerial(serialY(dv));
  if(d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m)return toast("التاريخ ده برة شهر "+sm.m+"/"+sm.y+" الحالي في الشيت");
  const note=$("adN").value.trim(),lab=curLab(),row=c.row;c.debt+=a;const nd=c.debt;
- enqueue(async()=>{await put("E"+row,[[nd]]);await sheetAppend("DebtAdds",["الشهر","العميل","التاريخ","المبلغ","ملاحظة"],[[lab,c.n,dstr(d),a,note]])});
+ enqueue(async()=>{await put("E"+row,[[nd]]);await sheetAppend("DebtAdds",["الشهر","العميل","التاريخ","المبلغ","ملاحظة"],[[lab,c.n,dstr(d),a,note]],["@","@","@","General","General"])});
  toast("اتزودت المديونية ✔");openC(c)}
+async function backupFile(lab){const t=await token(),H={Authorization:"Bearer "+t};
+ const r=await fetch("https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI(CONFIG.filePath)+":/content",{headers:H});
+ if(!r.ok)throw new Error("download "+r.status);const b=await r.blob();if(!b.size)throw new Error("empty");
+ const base=CONFIG.filePath.split("/").pop().replace(/\.xlsx$/i,"");
+ const u=await fetch("https://graph.microsoft.com/v1.0/me/drive/root:"+encodeURI("/"+base+"-backups/"+base+"-"+lab+".xlsx")+":/content",{method:"PUT",headers:{...H,"Content-Type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},body:b});
+ if(!u.ok)throw new Error("upload "+u.status)}
+async function backupSnap(lab){const v=(await g(rng("A1:"+colL(LAY.act+8)+"73")+"?$select=values")).values;let nm="Snap-"+lab;
+ try{await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:nm})})}catch(e){nm+="-"+Date.now()%100000;await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:nm})})}
+ await put2(nm,"A1:"+colL(v[0].length)+v.length,v)}
+async function backup(lab){try{await backupFile(lab);return"ملف"}catch(e1){try{await backupSnap(lab);return"ورقة"}catch(e2){throw new Error("فشل النسخ الاحتياطي: "+(e2.message||e2))}}}
+async function pruneSheet(sh,cols,cut){try{const v=(await g("/worksheets('"+sh+"')/usedRange?$select=values")).values,n=v.length;if(n<2)return 0;
+ const keep=v.slice(1).filter(x=>x[0]!==""&&lb(x[0])>=cut);if(keep.length===n-1)return 0;const L=colL(cols);
+ if(keep.length)await put2(sh,"A2:"+L+(keep.length+1),keep);
+ await g("/worksheets('"+sh+"')/range(address='A"+(keep.length+2)+":"+L+n+"')/clear",{method:"POST",body:JSON.stringify({applyTo:"Contents"})});return n-1-keep.length}catch(e){return 0}}
 async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة الشهر الأول");
  const sm=monthOf(dateCols[0]),nx=sm.m===12?{y:sm.y+1,m:1}:{y:sm.y,m:sm.m+1},lab=sm.y+"-"+String(sm.m).padStart(2,"0");
  if(!confirm("هتقفل شهر "+sm.m+"/"+sm.y+" وتبدأ "+nx.m+"/"+nx.y+".\nالمتبقي لكل عميل بيتحول لمديونيته، والدفعات والـDN بتتمسح من الشيت وبتتحفظ في ورقة Archive.\nعملت نسخة احتياطية من ENGING؟"))return;
  let step="الأرشفة";
  try{toast("جاري إقفال الشهر...");await q;await load(true);if(!aligned())return toast("الشيت اتغير، حدّث وجرب تاني");if(!customers.length)return toast("مفيش عملاء في الشيت، مفيش حاجة تتقفل");
+  step="النسخة الاحتياطية";toast("جاري عمل نسخة احتياطية...");await new Promise(r=>setTimeout(r,2500));const bk=await backup(lab);step="الأرشفة";
   const t=x=>dstr(fromSerial(x)),rows=[],first=t(ser3(sm.y,sm.m,1)),last=t(ser3(sm.y,sm.m,monthLen(sm.y,sm.m)));
   const adds=(await loadAdds()).filter(x=>x[0]===lab);
   customers.forEach(c=>{const st=stat(c),ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);rows.push([lab,c.n,"افتتاح",first,c.debt-sa,""]);ad.forEach(x=>rows.push([lab,c.n,"زيادة مديونية",x[2],+x[3]||0,x[4]||""]));c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest])});
   await archiveAppend(rows);
   step="ترحيل المتبقي";const E=[],D=[];for(let r=4;r<=73;r++){const c=customers.find(x=>x.row===r);E.push([c?stat(c).rest:""]);D.push([""])}
   const dc=colL(LAY.act+1);await put("E4:E73",E);step="مسح DN";await put(dc+"4:"+dc+"73",D);
-  step="بدء الشهر الجديد";await writeMonth(nx,null);await load(true);render();toast("اتقفل الشهر ✔")}
+  step="بدء الشهر الجديد";await writeMonth(nx,null);
+  step="تنظيف الأرشيف";const ci=sm.y*12+sm.m-1-2,cut=Math.floor(ci/12)+"-"+String(ci%12+1).padStart(2,"0"),pr=(await pruneSheet("Archive",6,cut))+(await pruneSheet("DebtAdds",5,cut));
+  await load(true);render();toast("اتقفل الشهر ✔ · نسخة احتياطية ("+bk+")"+(pr?" · اتمسح "+pr+" صف قديم من الأرشيف":""))}
  catch(e){toast("وقف عند ("+step+"): "+e.message+" — راجع الشيت وورقة Archive قبل ما تكمل")}}
-async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name)}catch(e){return[]}}
+async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name).map(x=>[lb(x[0]),x[1],x[2],dd(x[3]),x[4],x[5]])}catch(e){return[]}}
 const ty=x=>x[2]+(x[2]==="زيادة مديونية"&&x[5]?" ("+x[5]+")":"");
 function archBlocks(rows,pdf){const by={};rows.forEach(x=>(by[x[0]]=by[x[0]]||[]).push(x));const td="padding:7px 9px;border:1px solid #bbb;text-align:center";
  return Object.keys(by).sort().reverse().map(l=>{const t=by[l];
