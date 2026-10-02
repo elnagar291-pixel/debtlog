@@ -43,6 +43,17 @@ function parseD(x){if(typeof x==="number")return x>0?Math.floor(x):0;if(typeof x
  else if(r=t.match(/^(\d{1,2})[-\/](\d{1,2})(?:[-\/](\d{2,4}))?$/)){d=+r[1];m=+r[2];y=r[3]?+r[3]:y0;if(y<100)y+=2000}
  else return 0;
  if(!m||m>12||!d)return 0;return Math.floor(Date.UTC(y,m-1,d)/864e5)+25569}
+let LAY={act:33};try{const x=+localStorage.getItem("act");if(x>=33)LAY.act=x}catch(e){}
+const monthOf=n=>{const d=fromSerial(n);return d?{y:d.getUTCFullYear(),m:d.getUTCMonth()+1}:null};
+const monthLen=(y,m)=>new Date(Date.UTC(y,m,0)).getUTCDate();
+const ser3=(y,m,d)=>Math.floor(Date.UTC(y,m-1,d)/864e5)+25569;
+function aligned(){const sm=monthOf(dateCols[0]);if(!sm||dateCols.length<31)return false;const L=monthLen(sm.y,sm.m);
+ return dateCols.every((n,k)=>{if(k>=L)return !n;const d=fromSerial(n);return !!d&&d.getUTCFullYear()===sm.y&&d.getUTCMonth()+1===sm.m&&d.getUTCDate()===k+1})}
+function writeCol(ds){const sm=monthOf(dateCols[0]);
+ if(!sm||!aligned()){toast("اضغط ⚙ تهيئة الشهر من الرئيسية الأول");return -1}
+ const d=fromSerial(ds);if(d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m){toast("التاريخ ده برة شهر "+sm.m+"/"+sm.y+" الحالي في الشيت. اقفل الشهر الأول");return -1}
+ return d.getUTCDate()-1}
+function bounds(){const sm=monthOf(dateCols[0]);if(!sm||!aligned())return null;const p=n=>String(n).padStart(2,"0");return{min:sm.y+"-"+p(sm.m)+"-01",max:sm.y+"-"+p(sm.m)+"-"+p(monthLen(sm.y,sm.m))}}
 let dirty=false;document.addEventListener("input",e=>{if(e.target.type!=="date")dirty=true});
 let selDate=ymd(new Date()),sortBy=(()=>{try{return localStorage.getItem("sortBy")||"due"}catch(e){return"due"}})();
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
@@ -67,12 +78,15 @@ function setSync(){const e=$("sync");if(!e)return;
  else{e.textContent="";e.className="sync"}}
 function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync()}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
-async function load(force){if(!force)await q;const g0=wgen;const r=await g(rng("A2:AO73")+"?$select=values"),v=r.values;
+async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2:"+colL(LAY.act+8)+"73")+"?$select=values"),v=r.values;
+ if(String(v[1][LAY.act-1]).trim()!=="Actual"){const h=(await g(rng("A3:GZ3")+"?$select=values")).values[0],ix=h.findIndex(x=>String(x).trim()==="Actual");
+  if(ix<0)throw new Error("مش لاقي عمود Actual في الصف 3 من الشيت");LAY.act=ix+1;try{localStorage.setItem("act",LAY.act)}catch(e){}
+  r=await g(rng("A2:"+colL(LAY.act+8)+"73")+"?$select=values");v=r.values}
  if(!force&&wgen!==g0)return;
- dateCols=v[0].slice(5,32).map(parseD);customers=[];
+ dateCols=v[0].slice(5,LAY.act-1).map(parseD);customers=[];
  for(let i=2;i<v.length;i++){const w=v[i],n=String(w[2]).trim();if(!n)continue;
-  customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,32).map(x=>+x||0),dn:+w[33]||0})}
- if(["due","name","rest"].includes(v[0][40]))sortBy=v[0][40];
+  customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,LAY.act-1).map(x=>+x||0),dn:+w[LAY.act]||0})}
+ if(["due","name","rest"].includes(v[0][LAY.act+7]))sortBy=v[0][LAY.act+7];
  if(cur){const c=customers.find(x=>x.row===cur.row&&x.n===cur.n);if(c)cur=c}
  syncErr=false;lastSync=new Date();setSync()}
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
@@ -89,12 +103,13 @@ function home(){const d=LV[curV]||0;d?history.go(-d):render()}
 window.addEventListener("popstate",e=>show((e.state&&e.state.v)||"home",true));
 try{history.replaceState({v:"home"},"")}catch(e){}
 // ===== الشاشات =====
-function render(){curV="home";const total=customers.reduce((a,c)=>a+stat(c).rest,0),tp=sumDay(serial(new Date()));
- $("app").innerHTML=`<div class="g"><div class="card big"><div class="mut">إجمالي المديونية</div><div class="num red">${fmt(total)}</div></div><div class="card big"><div class="mut">تحصيل اليوم</div><div class="num gn">${fmt(tp)}</div></div></div>
+function render(){curV="home";const sm=monthOf(dateCols[0]),now=monthOf(serial(new Date())),al=aligned();const total=customers.reduce((a,c)=>a+stat(c).rest,0),tp=sumDay(serial(new Date()));
+ $("app").innerHTML=(!al?`<div class="card soon" onclick="setupSheet()"><b>⚙ تهيئة الشهر (31 يوم)</b><div class="mut">الأعمدة محتاجة ترتيب على أيام الشهر، اضغط هنا</div></div>`:(sm&&now&&now.y*12+now.m>sm.y*12+sm.m?`<div class="card late" onclick="closeMonth()"><b>📅 الشهر الجديد بدأ</b><div class="mut">اضغط لإقفال شهر ${sm.m}/${sm.y} وترحيل المتبقي</div></div>`:""))+`<div class="g"><div class="card big"><div class="mut">إجمالي المديونية</div><div class="num red">${fmt(total)}</div></div><div class="card big"><div class="mut">تحصيل اليوم</div><div class="num gn">${fmt(tp)}</div></div></div>
  <div class="card tile" onclick="nav('customers')"><b>👥 العملاء</b><span class="mut">${customers.length} عميل</span></div>
- <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>`}
+ <div class="card tile" onclick="nav('coll')"><b>💰 التحصيلات اليومية</b><span class="mut">عرض وتعديل</span></div>
+ <div class="card tile" onclick="closeMonth()"><b>📅 إقفال الشهر</b><span class="mut">${sm?sm.m+"/"+sm.y:""}</span></div>`}
 function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
-function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put("AO2",[[v]]));list()}
+function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put(colL(LAY.act+8)+"2",[[v]]));list()}
 function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
  if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
@@ -103,26 +118,26 @@ function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($
  el.innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
   if(s.rest>0&&c.ds){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}
   return `<div class="card cust${cls}" onclick="hp('cust');open_(${customers.indexOf(c)})"><div class="row" style="border:0"><b>${c.n}</b><span class="${s.rest>0?"red":""}">${fmt(s.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)} ${tag}</div></div>`}).join("")}
-function addForm(){$("app").innerHTML=`<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="${ymd(new Date())}"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
+function addForm(){$("app").innerHTML=`<div class="card"><h3 style="margin:0">عميل جديد</h3><input id="cn" placeholder="اسم العميل"><input id="ca" placeholder="المنطقة"><span class="mut">تاريخ الاستحقاق</span><input id="cd" type="date" value="${ymd(new Date())}"><input id="cm" type="number" inputmode="decimal" placeholder="المديونية"><button onclick="addCust()">حفظ العميل</button></div><button class="gr" onclick="history.back()">رجوع</button>`;
+ loadArch(c.n).then(r=>{if(curV==="hist"&&cur===c&&r.length)$("app").firstElementChild.insertAdjacentHTML("afterend",'<div class="mut" style="margin:6px 4px">الشهور السابقة</div>'+archBlocks(r,false))})}
 function addCust(){const n=$("cn").value.trim(),a=$("ca").value.trim(),d=$("cd").value,m=parseFloat($("cm").value);
  if(!n||!d||isNaN(m))return toast("اكتب الاسم والتاريخ والمديونية");
  if(customers.some(c=>c.n===n))return toast("العميل ده موجود قبل كده");
  const used=new Set(customers.map(c=>c.row));let r=4;while(r<=73&&used.has(r))r++;if(r>73)return toast("الشيت مليان (آخر صف 73)");
- const ds=serialY(d);customers.push({row:r,n,a,ds,d:fromSerial(ds),debt:m,pay:Array(27).fill(0),dn:0});
+ const ds=serialY(d);customers.push({row:r,n,a,ds,d:fromSerial(ds),debt:m,pay:Array(dateCols.length).fill(0),dn:0});
  enqueue(()=>put("B"+r+":E"+r,[[ds,n,a,m]]));toast("اتضاف ✔");history.back()}
 function open_(i){openC(customers[i])}
-function openC(c){dirty=false;cur=c;const s=stat(c);
+function openC(c){dirty=false;cur=c;const bn=bounds();const s=stat(c);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${c.n}</h3><div class="mut">${c.a||""} · استحقاق ${dstr(c.d)}</div>
  <div class="row"><span>المديونية</span><b>${fmt(c.debt)}</b></div><div class="row"><span>مدفوع</span><b>${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div>
- <div class="card"><span class="mut">تاريخ الدفعة</span><input id="dt" type="date" value="${selDate}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ">
+ <div class="card"><span class="mut">تاريخ الدفعة</span><input id="dt" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ">
  <div class="g"><button onclick="add('Payment')">تسجيل دفعة</button><button class="alt" onclick="add('DN')">تسجيل DN</button></div></div>
  <div class="card"><b>تعديل بيانات العميل</b><br><span class="mut">المديونية</span><input id="ed" type="number" inputmode="decimal" value="${c.debt}"><span class="mut">تاريخ الاستحقاق</span><input id="eds" type="date" value="${c.d?c.d.toISOString().slice(0,10):""}"><button onclick="saveCust()">حفظ التعديل</button></div>
  <button class="alt" onclick="hp('hist');histPage()">📋 سجل الدفعات</button><button class="gr" onclick="history.back()">رجوع</button><button style="background:#b91c1c" onclick="delCust()">حذف العميل</button>`}
 function add(type){const a=parseFloat($("amt").value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=cur,row=c.row;
- if(type==="DN"){c.dn+=a;const v=c.dn;enqueue(()=>put("AH"+row,[[v]]))}
- else{const dv=$("dt").value||ymd(new Date()),ds=serialY(dv);let k=findCol(ds),nd=false;
-  if(k<0){k=dateCols.findIndex((d,i)=>!d&&!customers.some(x=>x.pay[i]));if(k<0)return toast("أعمدة الأيام (27) كلها اتملت");dateCols[k]=ds;nd=true}
-  const v=(c.pay[k]||0)+a;c.pay[k]=v;selDate=dv;enqueue(async()=>{if(nd)await put(colL(6+k)+"2",[[ds]]);await put(colL(6+k)+row,[[v]])})}
+ if(type==="DN"){c.dn+=a;const v=c.dn;enqueue(()=>put(colL(LAY.act+1)+row,[[v]]))}
+ else{const dv=$("dt").value||ymd(new Date()),ds=serialY(dv);const k=writeCol(ds);if(k<0)return;
+  const v=(c.pay[k]||0)+a;c.pay[k]=v;selDate=dv;enqueue(()=>put(colL(6+k)+row,[[v]]))}
  toast("اتسجل ✔");openC(c)}
 function saveCust(){const m=parseFloat($("ed").value),d=$("eds").value;if(isNaN(m)||m<0)return toast("اكتب مديونية صحيحة");const c=cur,row=c.row;
  c.debt=m;if(d){c.ds=serialY(d);c.d=fromSerial(c.ds)}
@@ -130,13 +145,53 @@ function saveCust(){const m=parseFloat($("ed").value),d=$("eds").value;if(isNaN(
 function delCust(){const c=cur,st=stat(c);if(st.p>0||st.dn>0)return toast("مينفعش تحذف عميل عليه دفعات أو DN مسجلة");
  if(!confirm("حذف العميل "+c.n+"؟"))return;customers=customers.filter(x=>x!==c);const r=c.row;
  enqueue(()=>put("B"+r+":E"+r,[["","","",""]]));toast("اتحذف ✔");history.back()}
+async function insertCols(n){const first=LAY.act-1,a=colL(first),b=colL(first+n-1);
+ await g(rng(a+":"+b)+"/insert",{method:"POST",body:JSON.stringify({shift:"Right"})});
+ const f=[];for(let c=first;c<first+n;c++){const L=colL(c);f.push("=SUM("+L+"4:"+L+"73)")}
+ await g(rng(a+"3:"+b+"3"),{method:"PATCH",body:JSON.stringify({formulas:[f]})});
+ LAY.act+=n;try{localStorage.setItem("act",LAY.act)}catch(e){}}
+async function writeMonth(sm,grid){const W=dateCols.length,L=monthLen(sm.y,sm.m),last=colL(5+W);
+ await put("F2:"+last+"2",[Array.from({length:W},(_,k)=>k<L?ser3(sm.y,sm.m,k+1):"")]);
+ const rows=[];for(let r=4;r<=73;r++){const i=customers.findIndex(c=>c.row===r);rows.push(Array.from({length:W},(_,k)=>i>=0&&grid&&grid[i][k]?grid[i][k]:""))}
+ await put("F4:"+last+"73",rows)}
+function realign(sm){const W=dateCols.length,bad=[],out=customers.map(c=>{const arr=Array(W).fill(0);
+ c.pay.forEach((a,k)=>{if(!a)return;const d=fromSerial(dateCols[k]);if(d&&d.getUTCFullYear()===sm.y&&d.getUTCMonth()+1===sm.m)arr[d.getUTCDate()-1]+=a;else bad.push(c.n+" ("+colL(6+k)+")")});return arr});return{out,bad}}
+async function setupSheet(){const sm=monthOf(dateCols.find(x=>x))||monthOf(serial(new Date()));
+ if(!confirm("هتتهيّأ الأعمدة على أيام شهر "+sm.m+"/"+sm.y+": كل يوم في عمود (31 عمود)، وهتتنقل دفعاتك لعمود يومها.\nعملت نسخة احتياطية من ENGING؟"))return;
+ try{toast("جاري التهيئة...");await q;await load(true);
+  if(dateCols.length<31){await insertCols(31-dateCols.length);await load(true)}
+  const{out,bad}=realign(sm);if(bad.length)return toast("فيه دفعات من غير تاريخ أو من شهر تاني: "+bad.slice(0,3).join("، "));
+  await writeMonth(sm,out);await load(true);render();toast("اتهيّأ الشيت ✔")}catch(e){toast("حصل خطأ: "+e.message)}}
+const put2=(sh,a,v)=>g("/worksheets('"+sh+"')/range(address='"+a+"')",{method:"PATCH",body:JSON.stringify({values:v})});
+async function archiveAppend(rows){let n=0;
+ try{const u=await g("/worksheets('Archive')/usedRange?$select=address");n=/:/.test(u.address)?+String(u.address).match(/(\d+)$/)[1]:0}
+ catch(e){await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:"Archive"})})}
+ if(n===0){await put2("Archive","A1:F1",[["الشهر","العميل","النوع","التاريخ","المبلغ","المتبقي بعد"]]);n=1}
+ await put2("Archive","A"+(n+1)+":F"+(n+rows.length),rows)}
+async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة الشهر الأول");
+ const sm=monthOf(dateCols[0]),nx=sm.m===12?{y:sm.y+1,m:1}:{y:sm.y,m:sm.m+1},lab=sm.y+"-"+String(sm.m).padStart(2,"0");
+ if(!confirm("هتقفل شهر "+sm.m+"/"+sm.y+" وتبدأ "+nx.m+"/"+nx.y+".\nالمتبقي لكل عميل بيتحول لمديونيته، والدفعات والـDN بتتمسح من الشيت وبتتحفظ في ورقة Archive.\nعملت نسخة احتياطية من ENGING؟"))return;
+ let step="الأرشفة";
+ try{toast("جاري إقفال الشهر...");await q;await load(true);if(!aligned())return toast("الشيت اتغير، حدّث وجرب تاني");
+  const t=x=>dstr(fromSerial(x)),rows=[],first=t(ser3(sm.y,sm.m,1)),last=t(ser3(sm.y,sm.m,monthLen(sm.y,sm.m)));
+  customers.forEach(c=>{const st=stat(c);rows.push([lab,c.n,"افتتاح",first,c.debt,""]);c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest])});
+  await archiveAppend(rows);
+  step="ترحيل المتبقي";const E=[],D=[];for(let r=4;r<=73;r++){const c=customers.find(x=>x.row===r);E.push([c?stat(c).rest:""]);D.push([""])}
+  const dc=colL(LAY.act+1);await put("E4:E73",E);step="مسح DN";await put(dc+"4:"+dc+"73",D);
+  step="بدء الشهر الجديد";await writeMonth(nx,null);await load(true);render();toast("اتقفل الشهر ✔")}
+ catch(e){toast("وقف عند ("+step+"): "+e.message+" — راجع الشيت وورقة Archive قبل ما تكمل")}}
+async function loadArch(name){try{const r=await g("/worksheets('Archive')/usedRange?$select=values");return r.values.slice(1).filter(x=>String(x[1]).trim()===name)}catch(e){return[]}}
+function archBlocks(rows,pdf){const by={};rows.forEach(x=>(by[x[0]]=by[x[0]]||[]).push(x));const td="padding:7px 9px;border:1px solid #bbb;text-align:center";
+ return Object.keys(by).sort().reverse().map(l=>{const t=by[l];
+  return pdf?`<div style="margin-top:20px;font-size:17px;font-weight:bold;color:#0f766e">شهر ${l}</div><table style="width:100%;border-collapse:collapse;font-size:15px">${t.map(x=>`<tr><td style="${td}">${x[2]}</td><td style="${td}">${x[3]||""}</td><td style="${td};font-weight:bold">${fmt(x[4])}</td></tr>`).join("")}</table>`
+  :`<div class="card"><b>شهر ${l}</b>${t.map(x=>`<div class="row"><span>${x[2]} <span class="mut">${x[3]||""}</span></span><b>${fmt(x[4])}</b></div>`).join("")}</div>`}).join("")}
 function histPage(){const c=cur,s=stat(c),rows=[];
  c.pay.forEach((a,k)=>{if(a>0)rows.push({k,a,d:dateCols[k]})});rows.sort((x,y)=>(x.d||1e9)-(y.d||1e9)||x.k-y.k);let run=0;
  const lines=rows.map(r=>{run+=r.a;return `<div class="row"><span>${r.d?dstr(fromSerial(r.d)):"بدون تاريخ"} <span class="mut">(${colL(6+r.k)})</span></span><span><b>${fmt(r.a)}</b> <span class="mut">· تراكمي ${fmt(run)}</span></span></div>`}).join("");
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">سجل دفعات ${c.n}</h3><div class="row"><span>المديونية</span><b>${fmt(c.debt)}</b></div>${lines||'<div class="mut" style="padding:8px 0">مفيش دفعات مسجلة</div>'}<div class="row"><span>إجمالي المدفوع (${rows.length} دفعة)</span><b class="gn">${fmt(s.p)}</b></div><div class="row"><span>إشعار خصم DN</span><b>${fmt(s.dn)}</b></div><div class="row"><span>المتبقي</span><b class="red">${fmt(s.rest)}</b></div></div><div class="g"><button onclick="pdfShare()">📤 مشاركة (واتساب)</button><button class="alt" onclick="pdfSave()">⬇ حفظ PDF</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 // ===== تقرير PDF =====
 function loadJS(u){return new Promise((ok,no)=>{if(document.querySelector('script[src="'+u+'"]'))return ok();const e=document.createElement("script");e.src=u;e.onload=ok;e.onerror=()=>no(new Error("تعذر تحميل مكتبة PDF، تأكد من النت"));document.head.appendChild(e)})}
-function reportHTML(c){const s=stat(c),rows=[];c.pay.forEach((a,k)=>{if(a>0)rows.push({k,a,d:dateCols[k]})});rows.sort((x,y)=>(x.d||1e9)-(y.d||1e9)||x.k-y.k);let run=0;
+function reportHTML(c,arch){const s=stat(c),rows=[];c.pay.forEach((a,k)=>{if(a>0)rows.push({k,a,d:dateCols[k]})});rows.sort((x,y)=>(x.d||1e9)-(y.d||1e9)||x.k-y.k);let run=0;
  const td="padding:9px 10px;border:1px solid #bbb;text-align:center";
  const body=rows.map((r,i)=>{run+=r.a;return `<tr><td style="${td}">${i+1}</td><td style="${td}">${r.d?dstr(fromSerial(r.d)):"بدون تاريخ"}</td><td style="${td};font-weight:bold">${fmt(r.a)}</td><td style="${td}">${fmt(run)}</td></tr>`}).join("")||`<tr><td colspan="4" style="${td}">مفيش دفعات مسجلة</td></tr>`;
  const sm=(l,v,c2)=>`<tr><td style="${td};background:#f1f5f4;font-weight:bold">${l}</td><td style="${td};font-weight:bold;color:${c2||"#111"}">${fmt(v)}</td></tr>`;
@@ -144,13 +199,13 @@ function reportHTML(c){const s=stat(c),rows=[];c.pay.forEach((a,k)=>{if(a>0)rows
  <div style="text-align:center;font-size:26px;font-weight:bold;color:#0f766e;border-bottom:3px solid #0f766e;padding-bottom:10px">كشف حساب عميل</div>
  <table style="width:100%;margin:18px 0;font-size:17px"><tr><td><b>العميل:</b> ${c.n}</td><td><b>المنطقة:</b> ${c.a||"-"}</td></tr><tr><td><b>تاريخ الاستحقاق:</b> ${dstr(c.d)||"-"}</td><td><b>تاريخ الكشف:</b> ${dstr(fromSerial(serial(new Date())))}</td></tr></table>
  <table style="width:100%;border-collapse:collapse;font-size:16px"><tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">التاريخ</th><th style="${td}">الدفعة</th><th style="${td}">التراكمي</th></tr>${body}</table>
- <table style="width:60%;margin:22px 0 0;border-collapse:collapse;font-size:17px">${sm("المديونية",c.debt)}${sm("إجمالي المدفوع ("+rows.length+" دفعة)",s.p,"#15803d")}${sm("إشعار خصم DN",s.dn)}${sm("المتبقي",s.rest,"#b91c1c")}</table></div>`}
+ <table style="width:60%;margin:22px 0 0;border-collapse:collapse;font-size:17px">${sm("المديونية",c.debt)}${sm("إجمالي المدفوع ("+rows.length+" دفعة)",s.p,"#15803d")}${sm("إشعار خصم DN",s.dn)}${sm("المتبقي",s.rest,"#b91c1c")}</table>${arch&&arch.length?archBlocks(arch,true):""}</div>`}
 let pdfCache=null;
-async function buildPDF(){const c=cur,key=c.row+"|"+c.n+"|"+c.pay.join(",")+"|"+c.dn+"|"+c.debt+"|"+dateCols.join(",");
+async function buildPDF(){const c=cur,arch=await loadArch(c.n),key=c.row+"|"+c.n+"|"+c.pay.join(",")+"|"+c.dn+"|"+c.debt+"|"+dateCols.join(",")+"|"+arch.length;
  if(pdfCache&&pdfCache.key===key)return pdfCache.blob;
  toast("جاري تجهيز الملف...");
  await loadJS("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");await loadJS("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
- const el=document.createElement("div");el.style.cssText="position:fixed;left:-10000px;top:0;background:#fff";el.innerHTML=reportHTML(c);document.body.appendChild(el);
+ const el=document.createElement("div");el.style.cssText="position:fixed;left:-10000px;top:0;background:#fff";el.innerHTML=reportHTML(c,arch);document.body.appendChild(el);
  try{const cv=await html2canvas(el.firstElementChild,{scale:2,backgroundColor:"#ffffff"});
   const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4"}),W=210,H=297,cw=cv.width,sl=Math.floor(cw*H/W);
   for(let y=0;y<cv.height;y+=sl){const h=Math.min(sl,cv.height-y),pt=document.createElement("canvas");pt.width=cw;pt.height=h;pt.getContext("2d").drawImage(cv,0,y,cw,h,0,0,cw,h);
