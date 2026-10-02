@@ -163,7 +163,7 @@ async function setupSheet(){const sm=monthOf(dateCols.find(x=>x))||monthOf(seria
   const{out,bad}=realign(sm);if(bad.length)return toast("فيه دفعات من غير تاريخ أو من شهر تاني: "+bad.slice(0,3).join("، "));
   await writeMonth(sm,out);await load(true);render();toast("اتهيّأ الشيت ✔")}catch(e){toast("حصل خطأ: "+e.message)}}
 const put2=(sh,a,v)=>g("/worksheets('"+sh+"')/range(address='"+a+"')",{method:"PATCH",body:JSON.stringify({values:v})});
-async function archiveAppend(rows){let n=0;
+async function archiveAppend(rows){if(!rows.length)return;let n=0;
  try{const u=await g("/worksheets('Archive')/usedRange?$select=address");n=/:/.test(u.address)?+String(u.address).match(/(\d+)$/)[1]:0}
  catch(e){await g("/worksheets/add",{method:"POST",body:JSON.stringify({name:"Archive"})})}
  if(n===0){await put2("Archive","A1:F1",[["الشهر","العميل","النوع","التاريخ","المبلغ","المتبقي بعد"]]);n=1}
@@ -172,7 +172,7 @@ async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة 
  const sm=monthOf(dateCols[0]),nx=sm.m===12?{y:sm.y+1,m:1}:{y:sm.y,m:sm.m+1},lab=sm.y+"-"+String(sm.m).padStart(2,"0");
  if(!confirm("هتقفل شهر "+sm.m+"/"+sm.y+" وتبدأ "+nx.m+"/"+nx.y+".\nالمتبقي لكل عميل بيتحول لمديونيته، والدفعات والـDN بتتمسح من الشيت وبتتحفظ في ورقة Archive.\nعملت نسخة احتياطية من ENGING؟"))return;
  let step="الأرشفة";
- try{toast("جاري إقفال الشهر...");await q;await load(true);if(!aligned())return toast("الشيت اتغير، حدّث وجرب تاني");
+ try{toast("جاري إقفال الشهر...");await q;await load(true);if(!aligned())return toast("الشيت اتغير، حدّث وجرب تاني");if(!customers.length)return toast("مفيش عملاء في الشيت، مفيش حاجة تتقفل");
   const t=x=>dstr(fromSerial(x)),rows=[],first=t(ser3(sm.y,sm.m,1)),last=t(ser3(sm.y,sm.m,monthLen(sm.y,sm.m)));
   customers.forEach(c=>{const st=stat(c);rows.push([lab,c.n,"افتتاح",first,c.debt,""]);c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest])});
   await archiveAppend(rows);
@@ -226,6 +226,16 @@ function saveP(row,k){const a=parseFloat($("a"+row).value);if(!a||a<=0)return to
  c.pay[k]=a;enqueue(()=>put(colL(6+k)+row,[[a]]));toast("اتعدل ✔");collPage()}
 function delP(row,k){if(!confirm("حذف الدفعة دي؟"))return;const c=customers.find(x=>x.row===row);if(!c)return;
  c.pay[k]=0;enqueue(()=>put(colL(6+k)+row,[[""]]));toast("اتحذفت ✔");collPage()}
+// تحديث تلقائي: كل دقيقة، ولما ترجع للتطبيق
+async function autoRefresh(){if(document.hidden||pend>0||dirty||!msalApp||!msalApp.getAllAccounts().length)return;
+ const t=document.activeElement&&document.activeElement.tagName;if(t==="INPUT"||t==="SELECT")return;
+ const v=curV;if(!["home","customers","coll","cust"].includes(v))return;
+ try{await load()}catch(e){return}
+ if(curV!==v||dirty)return;
+ if(v==="cust"&&!customers.includes(cur)){toast("العميل اتغير أو اتحذف من الشيت");return history.back()}
+ draw(v,true)}
+setInterval(autoRefresh,60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)autoRefresh()});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 (async()=>{$("today").textContent=new Date().toLocaleDateString("en-GB");if(!msalApp)return;
  try{await msalApp.handleRedirectPromise()}catch(e){}
