@@ -203,16 +203,16 @@ async function pruneSheet(sh,cols,cut){try{const v=(await g("/worksheets('"+sh+"
  await g("/worksheets('"+sh+"')/range(address='A"+(keep.length+2)+":"+L+n+"')/clear",{method:"POST",body:JSON.stringify({applyTo:"Contents"})});return n-1-keep.length}catch(e){return 0}}
 async function closeMonth(){if(!aligned())return toast("اضغط ⚙ تهيئة الشهر الأول");
  const sm=monthOf(dateCols[0]),nx=sm.m===12?{y:sm.y+1,m:1}:{y:sm.y,m:sm.m+1},lab=sm.y+"-"+String(sm.m).padStart(2,"0");
- if(!confirm("هتقفل شهر "+sm.m+"/"+sm.y+" وتبدأ "+nx.m+"/"+nx.y+".\nالمتبقي لكل عميل بيتحول لمديونيته، والدفعات والـDN بتتمسح من الشيت وبتتحفظ في ورقة Archive.\nعملت نسخة احتياطية من ENGING؟"))return;
+ if(!confirm("هتقفل شهر "+sm.m+"/"+sm.y+" وتبدأ "+nx.m+"/"+nx.y+".\nالمديونية بعد التحصيلات (من غير إشعارات الخصم DN) بتتحول لمديونية العميل، والدفعات بتتمسح وبتتحفظ في ورقة Archive. إشعارات DN بتفضل في الشيت زي ما هي لحد ما تمسحها بنفسك.\nعملت نسخة احتياطية من ENGING؟"))return;
  let step="الأرشفة";
  try{toast("جاري إقفال الشهر...");await q;await load(true);if(!aligned())return toast("الشيت اتغير، حدّث وجرب تاني");if(!customers.length)return toast("مفيش عملاء في الشيت، مفيش حاجة تتقفل");
   step="النسخة الاحتياطية";toast("جاري عمل نسخة احتياطية...");await new Promise(r=>setTimeout(r,2500));const bk=await backup(lab);step="الأرشفة";
   const t=x=>dstr(fromSerial(x)),rows=[],first=t(ser3(sm.y,sm.m,1)),last=t(ser3(sm.y,sm.m,monthLen(sm.y,sm.m)));
   const adds=(await loadAdds()).filter(x=>x[0]===lab);
-  customers.forEach(c=>{const st=stat(c),ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);rows.push([lab,c.n,"افتتاح",first,c.debt-sa,"",dstr(c.d)]);ad.forEach(x=>rows.push([lab,c.n,"زيادة مديونية",x[2],+x[3]||0,x[4]||"",x[5]||""]));c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,"",""])});if(c.dn)rows.push([lab,c.n,"DN","",c.dn,"",""]);rows.push([lab,c.n,"إقفال",last,st.rest,st.rest,""])});
+  customers.forEach(c=>{const st=stat(c),ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);rows.push([lab,c.n,"افتتاح",first,c.debt-sa,"",dstr(c.d)]);ad.forEach(x=>rows.push([lab,c.n,"زيادة مديونية",x[2],+x[3]||0,x[4]||"",x[5]||""]));c.pay.forEach((a,k)=>{if(a>0)rows.push([lab,c.n,"دفعة",t(dateCols[k]),a,"",""])});rows.push([lab,c.n,"إقفال",last,st.rest+c.dn,c.dn?"DN معلّق "+c.dn:"",""])});
   await archiveAppend(rows);
-  step="ترحيل المتبقي";const E=[],D=[];for(let r=4;r<=73;r++){const c=customers.find(x=>x.row===r);E.push([c?stat(c).rest:""]);D.push([""])}
-  const dc=colL(LAY.act+1);await put("E4:E73",E);step="مسح DN";await put(dc+"4:"+dc+"73",D);
+  step="ترحيل المتبقي";const E=[];for(let r=4;r<=73;r++){const c=customers.find(x=>x.row===r);E.push([c?stat(c).rest+c.dn:""])}
+  await put("E4:E73",E);
   step="بدء الشهر الجديد";await writeMonth(nx,null);
   step="تنظيف الأرشيف";const ci=sm.y*12+sm.m-1-2,cut=Math.floor(ci/12)+"-"+String(ci%12+1).padStart(2,"0"),pr=(await pruneSheet("Archive",7,cut))+(await pruneSheet("DebtAdds",6,cut));
   await load(true);render();toast("اتقفل الشهر ✔ · نسخة احتياطية ("+bk+")"+(pr?" · اتمسح "+pr+" صف قديم من الأرشيف":""))}
@@ -237,7 +237,7 @@ function ledger(c,arch,adds){const L=[],cl=curLab(),sm=monthOf(dateCols[0]);let 
    if(t==="افتتاح"){if(mi===0){open=+x[4]||0;openDue=x[6]||""}}
    else if(t==="زيادة مديونية")L.push({d:parseD(x[3]),o:0,t:"فاتورة جديدة"+(x[5]?" — "+x[5]:""),db:+x[4]||0,cr:0,due:x[6]||""});
    else if(t==="دفعة")L.push({d:parseD(x[3]),o:1,t:"تحصيل",db:0,cr:+x[4]||0,due:""});
-   else if(t==="DN")L.push({d:end,o:2,nd:1,t:"إشعار خصم",db:0,cr:+x[4]||0,due:""})})});
+   })});
  let sa=0;(adds||[]).forEach(x=>{sa+=+x[3]||0;L.push({d:parseD(x[2]),o:0,t:"فاتورة جديدة"+(x[4]?" — "+x[4]:""),db:+x[3]||0,cr:0,due:x[5]||""})});
  c.pay.forEach((a,k)=>{if(a>0)L.push({d:dateCols[k]||9e9,o:1,t:"تحصيل",db:0,cr:a,due:""})});
  if(c.dn)L.push({d:sm?ser3(sm.y,sm.m,monthLen(sm.y,sm.m)):9e9,o:2,nd:1,t:"إشعار خصم",db:0,cr:c.dn,due:""});
