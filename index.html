@@ -258,16 +258,38 @@ function reportHTML(c,arch,adds){const g2=ledger(c,arch,adds),td="padding:8px 6p
  <div style="margin-top:18px;font-size:19px;font-weight:bold">الرصيد المستحق: <span style="color:#b91c1c">${fmt(g2.bal)}</span></div>
  <div style="margin-top:6px;font-size:13px;color:#667">مدين = زيادة في المديونية · دائن = دفعات وإشعارات خصم</div></div>`}
 let pdfCache=null;
-async function buildPDF(){const c=cur,arch=await loadArch(c.n),adds=(await loadAdds()).filter(x=>String(x[1]).trim()===c.n&&x[0]===curLab()),key=c.row+"|"+c.n+"|"+c.pay.join(",")+"|"+c.dn+"|"+c.debt+"|"+dateCols.join(",")+"|"+arch.length+"|"+adds.length+"|"+adds.map(x=>x[3]).join(",");
- if(pdfCache&&pdfCache.key===key)return pdfCache.blob;
- toast("جاري تجهيز الملف...");
+async function htmlToPdf(html){toast("جاري تجهيز الملف...");
  await loadJS("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");await loadJS("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
- const el=document.createElement("div");el.style.cssText="position:fixed;left:-10000px;top:0;background:#fff";el.innerHTML=reportHTML(c,arch,adds);document.body.appendChild(el);
+ const el=document.createElement("div");el.style.cssText="position:fixed;left:-10000px;top:0;background:#fff";el.innerHTML=html;document.body.appendChild(el);
  try{const cv=await html2canvas(el.firstElementChild,{scale:2,backgroundColor:"#ffffff"});
   const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4"}),W=210,H=297,cw=cv.width,sl=Math.floor(cw*H/W);
   for(let y=0;y<cv.height;y+=sl){const h=Math.min(sl,cv.height-y),pt=document.createElement("canvas");pt.width=cw;pt.height=h;pt.getContext("2d").drawImage(cv,0,y,cw,h,0,0,cw,h);
    if(y>0)pdf.addPage();pdf.addImage(pt.toDataURL("image/jpeg",0.92),"JPEG",0,0,W,h*W/cw)}
-  const blob=pdf.output("blob");pdfCache={key,blob};return blob}finally{el.remove()}}
+  return pdf.output("blob")}finally{el.remove()}}
+async function buildPDF(){const c=cur,arch=await loadArch(c.n),adds=(await loadAdds()).filter(x=>String(x[1]).trim()===c.n&&x[0]===curLab()),html=reportHTML(c,arch,adds);
+ if(pdfCache&&pdfCache.html===html)return pdfCache.blob;const blob=await htmlToPdf(html);pdfCache={html,blob};return blob}
+// ===== تقرير التحصيل اليومي =====
+function dayReportHTML(ds,adds){const k=findCol(ds),R=[],td="padding:9px 8px;border:1px solid #bbb;text-align:center;font-size:15px";
+ customers.forEach(c=>{const p=k>=0?c.pay[k]:0;if(!(p>0))return;
+  const ad=adds.filter(x=>String(x[1]).trim()===c.n),sa=ad.reduce((t,x)=>t+(+x[3]||0),0);let bal=c.debt-sa;
+  ad.forEach(x=>{if(parseD(x[2])<=ds)bal+=+x[3]||0});c.pay.forEach((q,j)=>{if(q>0&&dateCols[j]&&dateCols[j]<=ds)bal-=q});R.push({n:c.n,a:c.a,p,bal,dn:c.dn})});
+ const tp=R.reduce((t,x)=>t+x.p,0),tb=R.reduce((t,x)=>t+x.bal,0);
+ const body=R.map((x,i)=>`<tr><td style="${td}">${i+1}</td><td style="${td};text-align:right;font-weight:bold">${x.n}</td><td style="${td}">${x.a||""}</td><td style="${td};color:#15803d;font-weight:bold">${fmt(x.p)}</td><td style="${td};font-weight:bold">${fmt(x.bal)}</td></tr>`).join("")||`<tr><td colspan="5" style="${td}">مفيش تحصيلات في اليوم ده</td></tr>`;
+ return `<div style="direction:rtl;font-family:Tahoma,Arial,sans-serif;color:#111;background:#fff;padding:36px;width:794px;box-sizing:border-box">
+ <div style="text-align:center;font-size:26px;font-weight:bold;color:#0f766e;border-bottom:3px solid #0f766e;padding-bottom:10px">تقرير التحصيل اليومي</div>
+ <table style="width:100%;margin:16px 0;font-size:18px"><tr><td><b>التاريخ:</b> ${dstr(fromSerial(ds))}</td><td><b>عدد العملاء:</b> ${R.length}</td><td><b>إجمالي التحصيل:</b> <span style="color:#15803d;font-weight:bold">${fmt(tp)}</span></td></tr></table>
+ <table style="width:100%;border-collapse:collapse"><colgroup><col style="width:6%"><col style="width:32%"><col style="width:18%"><col style="width:20%"><col style="width:24%"></colgroup>
+ <tr style="background:#0f766e;color:#fff"><th style="${td}">#</th><th style="${td}">العميل</th><th style="${td}">المنطقة</th><th style="${td}">الدفعة</th><th style="${td}">المديونية بعد التحصيل</th></tr>
+ ${body}
+ <tr style="background:#eef4f3"><td style="${td}" colspan="3"><b>الإجمالي</b></td><td style="${td};font-weight:bold;color:#15803d">${fmt(tp)}</td><td style="${td};font-weight:bold;color:#b91c1c">${fmt(tb)}</td></tr></table>
+ ${R.some(x=>x.dn>0)?'<div style="margin-top:10px;font-size:13px;color:#667">المديونية بعد التحصيل لا تشمل إشعارات خصم DN.</div>':""}</div>`}
+let dayCache=null;
+async function dayPdf(share){const ds=serialY(selDate),name="تقرير تحصيل "+dstr(fromSerial(ds)).replace(/\//g,"-")+".pdf";
+ try{const adds=(await loadAdds()).filter(x=>x[0]===curLab()),html=dayReportHTML(ds,adds);let b;
+  if(dayCache&&dayCache.html===html)b=dayCache.blob;else{b=await htmlToPdf(html);dayCache={html,blob:b}}
+  if(share){const f=new File([b],name,{type:"application/pdf"});if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f],title:name});else{dlBlob(b,name);toast("المشاركة مش مدعومة هنا، اتحفظ الملف")}}
+  else{dlBlob(b,name);toast("اتحفظ الملف ✔")}}
+ catch(e){if(e.name==="AbortError")return;if(e.name==="NotAllowedError")toast("الملف جاهز ✔ اضغط مشاركة تاني");else toast("خطأ: "+(e.message||e))}}
 function dlBlob(b,name){const u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
 async function pdfSave(){try{const b=await buildPDF();dlBlob(b,"كشف حساب "+cur.n+".pdf");toast("اتحفظ الملف ✔")}catch(e){toast("خطأ: "+(e.message||e))}}
 async function pdfShare(){const name="كشف حساب "+cur.n+".pdf";
@@ -277,7 +299,7 @@ async function pdfShare(){const name="كشف حساب "+cur.n+".pdf";
  catch(e){if(e.name==="AbortError")return;if(e.name==="NotAllowedError")toast("الملف جاهز ✔ اضغط مشاركة تاني");else toast("خطأ: "+(e.message||e))}}
 function collPage(){dirty=false;curV="coll";const ds=serialY(selDate),k=findCol(ds),day=k<0?[]:customers.filter(c=>c.pay[k]>0),tp=day.reduce((a,c)=>a+c.pay[k],0);
  $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><span class="mut">اختر اليوم</span><input id="sd" type="date" value="${selDate}" onchange="selDate=this.value||ymd(new Date());collPage()">
- <div class="row"><span>تحصيل ${dstr(fromSerial(ds))}</span><b class="gn">${fmt(tp)}</b></div><div class="row"><span>عدد العملاء</span><b>${day.length}</b></div></div>`+
+ <div class="row"><span>تحصيل ${dstr(fromSerial(ds))}</span><b class="gn">${fmt(tp)}</b></div><div class="row"><span>عدد العملاء</span><b>${day.length}</b></div>${day.length?`<div class="g"><button onclick="dayPdf(true)">📤 مشاركة التقرير</button><button class="alt" onclick="dayPdf(false)">⬇ حفظ PDF</button></div>`:""}</div>`+
  (day.length?day.map(c=>`<div class="card"><b>${c.n}</b><div class="g"><input type="number" inputmode="decimal" id="a${c.row}" value="${c.pay[k]}"><button onclick="saveP(${c.row},${k})">حفظ</button></div><button class="gr" onclick="delP(${c.row},${k})">حذف الدفعة</button></div>`).join(""):'<div class="card mut">مفيش تحصيلات في اليوم ده</div>')}
 function saveP(row,k){const a=parseFloat($("a"+row).value);if(!a||a<=0)return toast("اكتب مبلغ صحيح");const c=customers.find(x=>x.row===row);if(!c)return;
  c.pay[k]=a;enqueue(()=>put(colL(6+k)+row,[[a]]));toast("اتعدل ✔");collPage()}
