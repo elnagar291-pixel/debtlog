@@ -6,7 +6,7 @@
 *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:70px}
 header{background:var(--pr);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}header span{font-size:13px;opacity:.9}
 main{padding:12px;max-width:600px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
-input,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
+input,button,select{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
 button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{background:#b45309}button.gr{background:#667}
 .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}.mut{color:var(--mut);font-size:13px}.red{color:var(--red);font-weight:bold}.gn{color:#15803d;font-weight:bold}
 .cust{cursor:pointer}.soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.paid{opacity:.55}
@@ -29,6 +29,8 @@ async function enc(o){const u=new TextEncoder().encode(JSON.stringify(o));
  if(typeof CompressionStream!=="undefined"){const r=await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();return"z."+b64u(new Uint8Array(r))}return"p."+b64u(u)}
 async function dec(t){let u=unb64u(t.slice(2));if(t[0]==="z")u=new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());return JSON.parse(new TextDecoder().decode(u))}
 const LS={g:k=>{try{return localStorage.getItem(k)}catch(e){return null}},s:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let sortBy=LS.g("colSort")||"due";
+function setSort(v){sortBy=v;LS.s("colSort",v);list()}
 let snap=null,cur=null,entries=[];try{entries=JSON.parse(LS.g("colEntries")||"[]")}catch(e){}
 const save=()=>LS.s("colEntries",JSON.stringify(entries));
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
@@ -38,9 +40,9 @@ function render(){
  if(!snap){$("app").innerHTML='<div class="card">الرابط ناقص أو تالف. اطلب من المدير رابط جديد.</div>'+mineBar();return}
  $("gen").textContent="القائمة بتاريخ "+dstr(fromSerial(snap.g));
  if(serial(new Date())>snap.x){$("app").innerHTML='<div class="card late">⚠ الرابط انتهى، اطلب رابط جديد من المدير.</div>'+mineBar();return}
- $("app").innerHTML=`<input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div style="margin:6px 2px" class="mut">العملاء اللي عليهم مديونية: ${snap.r.length} · للاطلاع وتسجيل التحصيل فقط</div><div id="list"></div>`+mineBar();list()}
+ $("app").innerHTML=`<div class="g"><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select></div><div style="margin:6px 2px" class="mut">العملاء اللي عليهم مديونية: ${snap.r.length} · للاطلاع وتسجيل التحصيل فقط</div><div id="list"></div>`+mineBar();$("so").value=sortBy;list()}
 function list(){const q=($("q").value||"").trim(),t=serial(new Date());
- const a=snap.r.map((r,i)=>({i,n:r[0],a:r[1],rest:r[2]-since(r[0]),due:r[3]})).filter(x=>x.n.includes(q)).sort((x,y)=>(x.rest<=0)-(y.rest<=0)||(x.due||1e9)-(y.due||1e9));
+ const a=snap.r.map((r,i)=>({i,n:r[0],a:r[1],rest:r[2]-since(r[0]),due:r[3]})).filter(x=>x.n.includes(q)).sort((x,y)=>(x.rest<=0)-(y.rest<=0)||(sortBy==="name"?x.n.replace(/^ال/,"").localeCompare(y.n.replace(/^ال/,""),"ar"):sortBy==="rest"?y.rest-x.rest:(x.due||1e9)-(y.due||1e9)));
  $("list").innerHTML=a.map(c=>{const dl=c.due-t;let cls="",tag="";
   if(c.rest<=0)tag='<span class="tag g">✔ تم التحصيل</span>';
   else if(c.due){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}

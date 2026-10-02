@@ -117,7 +117,7 @@ function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back
 function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put(colL(LAY.act+8)+"2",[[v]]));list()}
 function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
- if(sortBy==="name")a.sort((x,y)=>x.n.localeCompare(y.n,"ar"));
+ if(sortBy==="name")a.sort((x,y)=>x.n.replace(/^ال/,"").localeCompare(y.n.replace(/^ال/,""),"ar"));
  else if(sortBy==="rest")a.sort((x,y)=>stat(y).rest-stat(x).rest);
  else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
  el.innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
