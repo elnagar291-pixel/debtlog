@@ -79,7 +79,7 @@ function setSync(){const e=$("sync");if(!e)return;
  else if(syncErr){e.textContent="⚠ المزامنة فشلت، اضغط للمحاولة تاني";e.className="sync err"}
  else if(lastSync){e.textContent="✔ تمت المزامنة · آخر تحديث "+lastSync.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});e.className="sync ok"}
  else{e.textContent="";e.className="sync"}}
-function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync();if(pend===0&&document.hidden)closeSess()}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
+function enqueue(f){wgen++;pend++;setSync();q=q.then(f).then(()=>{pend--;syncErr=false;lastSync=new Date();setSync();if(pend===0){if(document.hidden)closeSess();schedulePublish(20000)}}).catch(e=>{pend--;syncErr=true;setSync();toast("فشل الحفظ: "+(e.message||e));return load(true).then(()=>show(curV)).catch(()=>{})})}
 // قراءة الشيت: الصف 2 = تواريخ الأيام (F..AF)، الصفوف 4..73 = العملاء
 async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2:"+colL(LAY.act+8)+"73")+"?$select=values"),v=r.values;
  if(String(v[1][LAY.act-1]).trim()!=="Actual"){const h=(await g(rng("A3:GZ3")+"?$select=values")).values[0],ix=h.findIndex(x=>String(x).trim()==="Actual");
@@ -90,6 +90,7 @@ async function load(force){if(!force)await q;const g0=wgen;let r=await g(rng("A2
  for(let i=2;i<v.length;i++){const w=v[i],n=String(w[2]).trim();if(!n)continue;
   customers.push({row:i+2,n,a:w[3],ds:typeof w[1]==="number"?w[1]:0,d:fromSerial(w[1]),debt:+w[4]||0,pay:w.slice(5,LAY.act-1).map(x=>+x||0),dn:+w[LAY.act]||0})}
  if(["due","name","rest"].includes(v[0][LAY.act+7]))sortBy=v[0][LAY.act+7];
+ if(ghTok()&&pubSig()!==lastSig)schedulePublish(25000);
  if(cur){const c=customers.find(x=>x.row===cur.row&&x.n===cur.n);if(c)cur=c}
  syncErr=false;lastSync=new Date();setSync()}
 function stat(c){const p=c.pay.reduce((a,x)=>a+x,0);return{p,dn:c.dn,rest:c.debt-p-c.dn}}
@@ -319,19 +320,52 @@ async function encTok(o){const u=new TextEncoder().encode(JSON.stringify(o));
 async function decTok(t){let u=unb64u(t.slice(2));if(t[0]==="z")u=new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());return JSON.parse(new TextDecoder().decode(u))}
 const ownerPhone=()=>{try{return localStorage.getItem("ownerPhone")||""}catch(e){return""}};
 function savePh(v){try{localStorage.setItem("ownerPhone",String(v).replace(/\D/g,""))}catch(e){}linkPage()}
-let lkURL="";
-async function linkPage(){curV="link";
- const rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),g0=serial(new Date());
- $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">🔗 رابط المحصّل</h3>
- <div class="mut">قائمة بـ ${rows.length} عميل عليهم مديونية، بتاريخ ${dstr(fromSerial(g0))}. المحصّل بيشوفها ويسجل التحصيل بس، ومفيش أي تحكم في المديونية.</div>
+// ===== الرابط الثابت: لقطة مشفّرة على GitHub (فرع data) =====
+const GH={o:"elnagar291-pixel",r:"debtlog",b:"data"};
+const ghTok=()=>{try{return localStorage.getItem("ghTok")||""}catch(e){return""}};
+function saveTok(v){try{localStorage.setItem("ghTok",v.trim())}catch(e){}linkPage()}
+async function gh(path,opt={}){const r=await fetch("https://api.github.com/repos/"+GH.o+"/"+GH.r+path,{...opt,headers:{Authorization:"Bearer "+ghTok(),Accept:"application/vnd.github+json","Content-Type":"application/json"}});
+ if(!r.ok){const e=new Error("GitHub "+r.status+(r.status===401?" (الـ Token غلط أو انتهى)":r.status===403||r.status===404?" (راجع صلاحيات الـ Token)":""));e.status=r.status;throw e}const t=await r.text();return t?JSON.parse(t):null}
+async function ensureBranch(){try{await gh("/branches/"+GH.b);return}catch(e){if(e.status!==404)throw e}
+ const m=await gh("/git/ref/heads/main");await gh("/git/refs",{method:"POST",body:JSON.stringify({ref:"refs/heads/"+GH.b,sha:m.object.sha})})}
+const ckey=k=>crypto.subtle.importKey("raw",unb64u(k),"AES-GCM",false,["encrypt","decrypt"]);
+async function encJSON(o,k){const iv=crypto.getRandomValues(new Uint8Array(12)),ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await ckey(k),new TextEncoder().encode(JSON.stringify(o))));return{iv:b64u(iv),ct:b64u(ct)}}
+async function snapId(k){return b64u(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode("id:"+k)))).slice(0,16)}
+const keyCell=()=>colL(LAY.act+8)+"1";
+async function getKey(fresh){let k="";if(!fresh){try{k=String((await g(rng(keyCell())+"?$select=values")).values[0][0]||"")}catch(e){}}
+ if(k.length<40){const u=new Uint8Array(32);crypto.getRandomValues(u);k=b64u(u);await put(keyCell(),[[k]])}return k}
+const pubSig=()=>JSON.stringify([customers.map(c=>[c.n,stat(c).rest]),ownerPhone()]);
+let lastSig=(()=>{try{return localStorage.getItem("pubSig")||""}catch(e){return""}})(),pubT=null,pubMsg="",lastPub=0,lkURL="";
+async function publishSnap(force){if(!ghTok())return;const sg=pubSig();if(!force&&sg===lastSig)return;
+ const k=await getKey(),rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),imp=[...await importedIds()].slice(-400);
+ const enc=await encJSON({v:1,g:serial(new Date()),t:Date.now(),p:ownerPhone(),r:rows,i:imp},k),path="/contents/snap/"+await snapId(k)+".json";
+ await ensureBranch();let sha;try{sha=(await gh(path+"?ref="+GH.b)).sha}catch(e){if(e.status!==404)throw e}
+ await gh(path,{method:"PUT",body:JSON.stringify({message:"snapshot",branch:GH.b,content:btoa(JSON.stringify(enc)),...(sha?{sha}:{})})});
+ lastSig=sg;lastPub=Date.now();pubMsg="";try{localStorage.setItem("pubSig",sg)}catch(e){}}
+function schedulePublish(ms){if(!ghTok())return;clearTimeout(pubT);pubT=setTimeout(()=>publishSnap().then(()=>{if(curV==="link")pubShow()}).catch(e=>{pubMsg="⚠ فشل النشر: "+(e.message||e);if(curV==="link")pubShow()}),ms||25000)}
+function pubShow(){const e=$("pubS");if(e)e.textContent=pubMsg||(lastPub?"✔ آخر نشر: "+new Date(lastPub).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):"")}
+async function pubNow(){if(!ghTok())return toast("اكتب GitHub Token الأول");
+ try{pubMsg="⏳ جاري النشر...";pubShow();await publishSnap(true);toast("اتنشرت ✔");pubShow()}catch(e){pubMsg="⚠ فشل النشر: "+(e.message||e);pubShow()}}
+function linkPage(){curV="link";const tk=ghTok();
+ $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">🔗 رابط المحصّل الثابت</h3>
+ <div class="mut">رابط واحد ما بيتغيرش. المحصّل كل ما يفتحه أو يضغط 🔄 بيشوف آخر قائمة ومكتوب قدامه وقت آخر تحديث. للاطلاع وتسجيل التحصيل بس.</div>
  <span class="mut">رقم واتساب بتاعك (عشان التحصيلات توصلك)</span><input type="tel" inputmode="numeric" placeholder="مثال: 201001234567" value="${ownerPhone()}" onchange="savePh(this.value)">
- <textarea id="lkU" class="ta" readonly rows="4" style="direction:ltr;font-size:12px">جاري التجهيز...</textarea>
+ <textarea id="lkU" class="ta" readonly rows="3" style="direction:ltr;font-size:12px">${tk?"جاري التجهيز...":"أضف الـ Token تحت، أو اعمل رابط مؤقت"}</textarea>
  <div class="g"><button onclick="lkShare()">📤 مشاركة الرابط</button><button class="alt" onclick="lkCopy()">📋 نسخ</button></div>
- <div class="mut" style="margin-top:8px">⚠ أي حد معاه الرابط يشوف الأسماء والمديونيات. الرابط بينتهي بعد 7 أيام، واعمل رابط جديد كل ما الأرقام تتغير.</div></div>`;
- const tok=await encTok({v:1,g:g0,x:g0+7,p:ownerPhone(),r:rows});lkURL=new URL("collector.html",location.href).href+"#d="+tok;
- if(curV==="link"&&$("lkU"))$("lkU").value=lkURL}
-async function lkShare(){if(!lkURL)return;try{if(navigator.share)await navigator.share({title:"قائمة التحصيل",text:"رابط قائمة العملاء لتسجيل التحصيل:",url:lkURL});else lkCopy()}catch(e){}}
-async function lkCopy(){try{await navigator.clipboard.writeText(lkURL);toast("اتنسخ الرابط ✔")}catch(e){$("lkU").select();toast("حدّد النص وانسخه")}}
+ <div id="pubS" class="mut" style="margin-top:8px"></div>${tk?'<button onclick="pubNow()">🔄 نشر التحديث الآن</button>':""}</div>
+ <div class="card"><b>إعداد النشر (مرة واحدة)</b><div class="mut" style="line-height:1.7">github.com ← Settings ← Developer settings ← Personal access tokens ← Fine-grained tokens ← Generate new token. اختار Repository: debtlog بس، وفي Permissions اختار Contents = Read and write. انسخ الـ Token والصقه هنا.</div>
+ <input id="ghT" type="password" placeholder="github_pat_..." value="${tk}" onchange="saveTok(this.value)">
+ ${tk?'<button class="alt" onclick="lkReset()">♻ رابط جديد (يلغي القديم)</button>':""}<button class="gr" onclick="lkTemp()">رابط مؤقت 7 أيام (من غير GitHub)</button></div>`;
+ if(tk)lkInit()}
+async function lkInit(){try{const k=await getKey();lkURL=new URL("collector.html",location.href).href+"#k="+k;if(curV==="link"&&$("lkU"))$("lkU").value=lkURL;pubShow();if(pubSig()!==lastSig)pubNow()}catch(e){if($("pubS"))$("pubS").textContent="⚠ "+(e.message||e)}}
+async function lkReset(){if(!confirm("هيتعمل رابط جديد والرابط القديم هيقف. تكمل؟"))return;
+ try{const oid=await snapId(await getKey()),path="/contents/snap/"+oid+".json";await getKey(true);
+  try{const f=await gh(path+"?ref="+GH.b);await gh(path,{method:"DELETE",body:JSON.stringify({message:"revoke",branch:GH.b,sha:f.sha})})}catch(e){}
+  await publishSnap(true);toast("اتعمل رابط جديد ✔");linkPage()}catch(e){toast("خطأ: "+(e.message||e))}}
+async function lkTemp(){const rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),g0=serial(new Date());
+ lkURL=new URL("collector.html",location.href).href+"#d="+await encTok({v:1,g:g0,x:g0+7,p:ownerPhone(),r:rows});if($("lkU"))$("lkU").value=lkURL;toast("رابط مؤقت لمدة 7 أيام")}
+async function lkShare(){if(!lkURL)return toast("الرابط لسه بيتجهز");try{if(navigator.share)await navigator.share({title:"قائمة التحصيل",text:"رابط قائمة العملاء لتسجيل التحصيل:",url:lkURL});else lkCopy()}catch(e){}}
+async function lkCopy(){if(!lkURL)return toast("الرابط لسه بيتجهز");try{await navigator.clipboard.writeText(lkURL);toast("اتنسخ الرابط ✔")}catch(e){$("lkU").select();toast("حدّد النص وانسخه")}}
 function colOf(ds){const sm=monthOf(dateCols[0]);if(!sm||!aligned())return -1;const d=fromSerial(ds);if(!d||d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m)return -1;return d.getUTCDate()-1}
 let impRows=[],impWho="";
 function importPage(){curV="import";impRows=[];

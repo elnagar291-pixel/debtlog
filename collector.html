@@ -14,7 +14,7 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}.bar{position:fixed;bottom:0;left:0;right:0;background:var(--pr);color:#fff;padding:16px;text-align:center;font-weight:bold;cursor:pointer}
 #msg{position:fixed;bottom:80px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
-<header><b>قائمة التحصيل</b><span id="gen"></span></header>
+<header><b>قائمة التحصيل</b><span><span id="gen"></span> <span id="rf" onclick="refresh(true)" style="cursor:pointer;font-size:18px">🔄</span></span></header>
 <main id="app"></main><div id="msg"></div>
 <script>
 const $=i=>document.getElementById(i),fmt=n=>Number(n||0).toLocaleString("en-US");
@@ -29,36 +29,47 @@ async function enc(o){const u=new TextEncoder().encode(JSON.stringify(o));
  if(typeof CompressionStream!=="undefined"){const r=await new Response(new Blob([u]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();return"z."+b64u(new Uint8Array(r))}return"p."+b64u(u)}
 async function dec(t){let u=unb64u(t.slice(2));if(t[0]==="z")u=new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());return JSON.parse(new TextDecoder().decode(u))}
 const LS={g:k=>{try{return localStorage.getItem(k)}catch(e){return null}},s:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const ckey=k=>crypto.subtle.importKey("raw",unb64u(k),"AES-GCM",false,["decrypt"]);
+async function decJSON(o,k){return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(o.iv)},await ckey(k),unb64u(o.ct))))}
+async function snapId(k){return b64u(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode("id:"+k)))).slice(0,16)}
+let key=null,lastTry=0,stale="",view="list";
+async function fetchLive(){const r=await fetch("https://api.github.com/repos/elnagar291-pixel/debtlog/contents/snap/"+await snapId(key)+".json?ref=data&_="+Date.now(),{headers:{Accept:"application/vnd.github.raw+json"},cache:"no-store"});
+ if(r.status===404)throw new Error("لسه ما اتنشرتش قائمة، اطلب من المدير يفتح تطبيقه");if(r.status===403)throw new Error("طلبات كتير، جرّب بعد شوية");if(!r.ok)throw new Error("خطأ "+r.status);
+ return await decJSON(JSON.parse(await r.text()),key)}
+async function refresh(manual){if(!key)return;if(!manual&&Date.now()-lastTry<30000)return;lastTry=Date.now();$("rf").style.opacity=.4;
+ try{snap=await fetchLive();LS.s("colLive",JSON.stringify(snap));stale=""}catch(e){stale=(e&&e.message)||"مفيش اتصال";if(manual)toast(stale)}
+ $("rf").style.opacity=1;if(view==="list"){const qv=$("q")?$("q").value:"";render();if(qv&&$("q")){$("q").value=qv;list()}}}
 let sortBy=LS.g("colSort")||"due";
 function setSort(v){sortBy=v;LS.s("colSort",v);list()}
 let snap=null,cur=null,entries=[];try{entries=JSON.parse(LS.g("colEntries")||"[]")}catch(e){}
 const save=()=>LS.s("colEntries",JSON.stringify(entries));
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
-const since=n=>entries.filter(e=>e.n===n&&e.d>=snap.g).reduce((t,e)=>t+e.a,0);
+const since=n=>entries.filter(e=>e.n===n&&(snap.i?!snap.i.includes(e.id):e.d>=snap.g)).reduce((t,e)=>t+e.a,0);
 const mineBar=()=>`<div class="bar" onclick="goMine()">📋 تحصيلاتي (${entries.length}) · ${fmt(entries.reduce((t,e)=>t+e.a,0))}</div>`;
 function render(){
- if(!snap){$("app").innerHTML='<div class="card">الرابط ناقص أو تالف. اطلب من المدير رابط جديد.</div>'+mineBar();return}
- $("gen").textContent="القائمة بتاريخ "+dstr(fromSerial(snap.g));
- if(serial(new Date())>snap.x){$("app").innerHTML='<div class="card late">⚠ الرابط انتهى، اطلب رابط جديد من المدير.</div>'+mineBar();return}
- $("app").innerHTML=`<div class="g"><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select></div><div style="margin:6px 2px" class="mut">العملاء اللي عليهم مديونية: ${snap.r.length} · للاطلاع وتسجيل التحصيل فقط</div><div id="list"></div>`+mineBar();$("so").value=sortBy;list()}
+ view="list";
+ if(!snap){$("app").innerHTML=(key?'<div class="card">جاري تحميل القائمة...'+(stale?"<br>"+stale:"")+'</div>':'<div class="card">الرابط ناقص أو تالف. اطلب من المدير رابط جديد.</div>')+mineBar();return}
+ $("gen").textContent=snap.t?"آخر تحديث: "+new Date(snap.t).toLocaleString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})+(stale?" ⚠":""):"القائمة بتاريخ "+dstr(fromSerial(snap.g));
+ if(snap.x&&serial(new Date())>snap.x){$("app").innerHTML='<div class="card late">⚠ الرابط انتهى، اطلب رابط جديد من المدير.</div>'+mineBar();return}
+ $("app").innerHTML=(stale?`<div class="card late">${stale} — ده آخر تحديث اتحمّل</div>`:"")+`<div class="g"><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select></div><div style="margin:6px 2px" class="mut">العملاء اللي عليهم مديونية: ${snap.r.length} · للاطلاع وتسجيل التحصيل فقط</div><div id="list"></div>`+mineBar();$("so").value=sortBy;list()}
 function list(){const q=($("q").value||"").trim(),t=serial(new Date());
  const a=snap.r.map((r,i)=>({i,n:r[0],a:r[1],rest:r[2]-since(r[0]),due:r[3]})).filter(x=>x.n.includes(q)).sort((x,y)=>(x.rest<=0)-(y.rest<=0)||(sortBy==="name"?x.n.replace(/^ال/,"").localeCompare(y.n.replace(/^ال/,""),"ar"):sortBy==="rest"?y.rest-x.rest:(x.due||1e9)-(y.due||1e9)));
  $("list").innerHTML=a.map(c=>{const dl=c.due-t;let cls="",tag="";
   if(c.rest<=0)tag='<span class="tag g">✔ تم التحصيل</span>';
   else if(c.due){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}
   return `<div class="card cust${cls}${c.rest<=0?" paid":""}" onclick="openF(${c.i})"><div class="row" style="border:0"><b>${c.n}</b><span class="${c.rest>0?"red":""}">${fmt(c.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(fromSerial(c.due))} ${tag}</div></div>`}).join("")}
-function openF(i){history.pushState({v:"form"},"");cur=i;const r=snap.r[i],rem=r[2]-since(r[0]);
+function openF(i){view="form";history.pushState({v:"form"},"");cur=i;const r=snap.r[i],rem=r[2]-since(r[0]);
  $("app").innerHTML=`<div class="card"><h3 style="margin:0">${r[0]}</h3><div class="mut">${r[1]||""} · استحقاق ${dstr(fromSerial(r[3]))}</div><div class="row"><span>المتبقي</span><b class="red">${fmt(rem)}</b></div>
  <span class="mut">تاريخ التحصيل</span><input id="dt" type="date" value="${ymd(new Date())}" max="${ymd(new Date())}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ اللي اتحصّل"><input id="nt" placeholder="ملاحظة (اختياري)"><button onclick="saveE()">تسجيل التحصيل</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 function saveE(){const a=parseFloat($("amt").value);if(!(a>0))return toast("اكتب مبلغ صحيح");const r=snap.r[cur],rem=r[2]-since(r[0]);
  if(a>rem&&!confirm("المبلغ أكبر من المتبقي ("+fmt(rem)+")، تكمل؟"))return;
  entries.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),n:r[0],a,d:serialY($("dt").value||ymd(new Date())),t:$("nt").value.trim(),s:0});save();toast("اتسجل ✔");history.back()}
 function goMine(){history.pushState({v:"mine"},"");mine()}
-function mine(){const un=entries.filter(e=>!e.s),tu=un.reduce((t,e)=>t+e.a,0),ta=entries.reduce((t,e)=>t+e.a,0);
+function mine(){view="mine";const un=entries.filter(e=>!e.s),tu=un.reduce((t,e)=>t+e.a,0),ta=entries.reduce((t,e)=>t+e.a,0);
  const L=entries.map((e,i)=>({e,i})).sort((x,y)=>y.e.d-x.e.d||y.i-x.i);
  $("app").innerHTML=`<button class="gr" onclick="history.back()">← القائمة</button><div class="card"><b>تحصيلاتي</b><div class="row"><span>لسه ما اتبعتتش (${un.length})</span><b class="gn">${fmt(tu)}</b></div><div class="row"><span>الإجمالي</span><b>${fmt(ta)}</b></div>
  <div class="g"><button onclick="send(false)">📤 إرسال الجديد</button><button class="alt" onclick="send(true)">📤 إرسال الكل</button></div><div class="mut" style="margin-top:8px">بيفتح واتساب برسالة جاهزة، اضغط إرسال هناك.</div></div>`+
- (L.length?L.map(x=>`<div class="card"><div class="row" style="border:0"><b>${x.e.n}</b><span class="gn">${fmt(x.e.a)}</span></div><div class="mut">${dstr(fromSerial(x.e.d))}${x.e.t?" · "+x.e.t:""} · ${x.e.s?"✔ اتبعت":"لسه"} ${x.e.s?"":`<span style="float:left;cursor:pointer" onclick="del(${x.i})">🗑 حذف</span>`}</div></div>`).join(""):'<div class="card mut">مفيش تحصيلات متسجلة</div>')}
+ (L.length?L.map(x=>`<div class="card"><div class="row" style="border:0"><b>${x.e.n}</b><span class="gn">${fmt(x.e.a)}</span></div><div class="mut">${dstr(fromSerial(x.e.d))}${x.e.t?" · "+x.e.t:""} · ${snap&&snap.i&&snap.i.includes(x.e.id)?"✔ اترحّل":x.e.s?"✔ اتبعت":"لسه"} ${x.e.s?"":`<span style="float:left;cursor:pointer" onclick="del(${x.i})">🗑 حذف</span>`}</div></div>`).join(""):'<div class="card mut">مفيش تحصيلات متسجلة</div>')}
 function del(i){if(!confirm("حذف التحصيل ده؟"))return;entries.splice(i,1);save();mine()}
 async function send(all){const L=entries.filter(e=>all||!e.s);if(!L.length)return toast("مفيش تحصيلات تتبعت");
  let nm=LS.g("colName");if(!nm){nm=(prompt("اكتب اسمك")||"").trim();if(nm)LS.s("colName",nm)}
@@ -66,7 +77,9 @@ async function send(all){const L=entries.filter(e=>all||!e.s);if(!L.length)retur
  const msg="تحصيلات"+(nm?" — "+nm:"")+" بتاريخ "+dstr(fromSerial(today))+"\n"+L.map((e,i)=>(i+1)+") "+e.n+": "+fmt(e.a)+(e.d!==today?" ("+dstr(fromSerial(e.d)).slice(0,5)+")":"")).join("\n")+"\nالإجمالي: "+fmt(tot)+"\n\n#DBT:"+tok;
  L.forEach(e=>e.s=1);save();location.href="https://wa.me/"+((snap&&snap.p)||"")+"?text="+encodeURIComponent(msg)}
 window.addEventListener("popstate",e=>{const v=e.state&&e.state.v;v==="mine"?mine():render()});
-(async()=>{const m=location.hash.match(/d=([pz]\.[A-Za-z0-9_-]+)/);
- try{if(m){snap=await dec(m[1]);LS.s("colSnap",m[1])}else{const t=LS.g("colSnap");if(t)snap=await dec(t)}}catch(e){snap=null}
- try{history.replaceState({v:"list"},"")}catch(e){}render()})();
+(async()=>{const hk=location.hash.match(/k=([A-Za-z0-9_-]{40,})/),m=location.hash.match(/d=([pz]\.[A-Za-z0-9_-]+)/);
+ if(hk){if(LS.g("colKey")!==hk[1])LS.s("colLive","");key=hk[1];LS.s("colKey",key)}else if(!m)key=LS.g("colKey");
+ try{if(key){const c=LS.g("colLive");if(c)snap=JSON.parse(c)}else if(m){snap=await dec(m[1]);LS.s("colSnap",m[1])}else{const t=LS.g("colSnap");if(t)snap=await dec(t)}}catch(e){snap=null}
+ try{history.replaceState({v:"list"},"")}catch(e){}render();if(key)refresh(true);
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()})})();
 </script></body></html>
