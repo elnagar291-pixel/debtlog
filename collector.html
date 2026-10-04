@@ -11,6 +11,7 @@ button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{back
 .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)}.mut{color:var(--mut);font-size:13px}.red{color:var(--red);font-weight:bold}.gn{color:#15803d;font-weight:bold}
 .cust{cursor:pointer}.soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.paid{opacity:.55}
 .tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.o{background:#d97706}.tag.r{background:#b91c1c}.tag.g{background:#15803d}
+a.btn{display:block;text-align:center;text-decoration:none;color:#fff;background:var(--pr);padding:12px;border-radius:10px;margin-top:8px;font-weight:bold}a.btn.alt{background:#b45309}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}.bar{position:fixed;bottom:0;left:0;right:0;background:var(--pr);color:#fff;padding:16px;text-align:center;font-weight:bold;cursor:pointer}
 #msg{position:fixed;bottom:80px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
@@ -54,33 +55,34 @@ function render(){
  if(snap.x&&serial(new Date())>snap.x){$("app").innerHTML='<div class="card late">⚠ الرابط انتهى، اطلب رابط جديد من المدير.</div>'+mineBar();return}
  $("app").innerHTML=(stale?`<div class="card late">${stale} — ده آخر تحديث اتحمّل</div>`:"")+`<div class="g"><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select></div><div style="margin:6px 2px" class="mut">العملاء اللي عليهم مديونية: ${snap.r.length} · للاطلاع وتسجيل التحصيل فقط</div><div id="list"></div>`+mineBar();$("so").value=sortBy;list()}
 function list(){const q=($("q").value||"").trim(),t=serial(new Date());
- const a=snap.r.map((r,i)=>({i,n:r[0],a:r[1],rest:r[2]-since(r[0]),due:r[3]})).filter(x=>x.n.includes(q)).sort((x,y)=>(x.rest<=0)-(y.rest<=0)||(sortBy==="name"?nk(x.n).localeCompare(nk(y.n),"ar",{numeric:true}):sortBy==="rest"?y.rest-x.rest:(x.due||1e9)-(y.due||1e9)));
+ const a=snap.r.map((r,i)=>({i,n:r[0],a:r[1],rest:r[2]-since(r[0]),due:r[3],dn:r[4]||0})).filter(x=>x.n.includes(q)).sort((x,y)=>(x.rest<=0)-(y.rest<=0)||(sortBy==="name"?nk(x.n).localeCompare(nk(y.n),"ar",{numeric:true}):sortBy==="rest"?y.rest-x.rest:(x.due||1e9)-(y.due||1e9)));
  $("list").innerHTML=a.map(c=>{const dl=c.due-t;let cls="",tag="";
   if(c.rest<=0)tag='<span class="tag g">✔ تم التحصيل</span>';
   else if(c.due){if(dl<0){cls=" late";tag=`<span class="tag r">متأخر ${-dl} يوم</span>`}else if(dl<=7){cls=" soon";tag=`<span class="tag o">باقي ${dl} يوم</span>`}}
-  return `<div class="card cust${cls}${c.rest<=0?" paid":""}" onclick="openF(${c.i})"><div class="row" style="border:0"><b>${c.n}</b><span class="${c.rest>0?"red":""}">${fmt(c.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(fromSerial(c.due))} ${tag}</div></div>`}).join("")}
-function openF(i){view="form";history.pushState({v:"form"},"");cur=i;const r=snap.r[i],rem=r[2]-since(r[0]);
- $("app").innerHTML=`<div class="card"><h3 style="margin:0">${r[0]}</h3><div class="mut">${r[1]||""} · استحقاق ${dstr(fromSerial(r[3]))}</div><div class="row"><span>المتبقي</span><b class="red">${fmt(rem)}</b></div>
+  return `<div class="card cust${cls}${c.rest<=0?" paid":""}" onclick="openF(${c.i})"><div class="row" style="border:0"><b>${c.n}</b><span class="${c.rest>0?"red":""}">${fmt(c.rest)}</span></div><div class="mut">${c.a||""} · استحقاق ${dstr(fromSerial(c.due))} ${tag}</div>${c.dn?`<div class="mut" style="margin-top:4px">المديونية ${fmt(c.rest+c.dn)} − إشعار خصم DN ${fmt(c.dn)} = <b>${fmt(c.rest)}</b></div>`:""}</div>`}).join("")}
+function openF(i){view="form";history.pushState({v:"form"},"");cur=i;const r=snap.r[i],rem=r[2]-since(r[0]),dn=r[4]||0;
+ $("app").innerHTML=`<div class="card"><h3 style="margin:0">${r[0]}</h3><div class="mut">${r[1]||""} · استحقاق ${dstr(fromSerial(r[3]))}</div>${dn?`<div class="row"><span>المديونية</span><b>${fmt(rem+dn)}</b></div><div class="row"><span>إشعار خصم DN</span><b class="gn">− ${fmt(dn)}</b></div><div class="row"><span>المتبقي بعد الـ DN</span><b class="red">${fmt(rem)}</b></div>`:`<div class="row"><span>المتبقي</span><b class="red">${fmt(rem)}</b></div>`}
  <span class="mut">تاريخ التحصيل</span><input id="dt" type="date" value="${ymd(new Date())}" max="${ymd(new Date())}"><input id="amt" type="number" inputmode="decimal" placeholder="المبلغ اللي اتحصّل"><input id="nt" placeholder="ملاحظة (اختياري)"><button onclick="saveE()">تسجيل التحصيل</button></div><button class="gr" onclick="history.back()">رجوع</button>`}
 function saveE(){const a=parseFloat($("amt").value);if(!(a>0))return toast("اكتب مبلغ صحيح");const r=snap.r[cur],rem=r[2]-since(r[0]);
  if(a>rem&&!confirm("المبلغ أكبر من المتبقي ("+fmt(rem)+")، تكمل؟"))return;
  entries.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),n:r[0],a,d:serialY($("dt").value||ymd(new Date())),t:$("nt").value.trim(),s:0});save();toast("اتسجل ✔");history.back()}
 function goMine(){history.pushState({v:"mine"},"");mine()}
-function mine(){view="mine";const un=entries.filter(e=>!e.s),tu=un.reduce((t,e)=>t+e.a,0),ta=entries.reduce((t,e)=>t+e.a,0);
+async function mine(){view="mine";const un=entries.filter(e=>!e.s),tu=un.reduce((t,e)=>t+e.a,0),ta=entries.reduce((t,e)=>t+e.a,0);
  const L=entries.map((e,i)=>({e,i})).sort((x,y)=>y.e.d-x.e.d||y.i-x.i);
+ if(entries.length&&!LS.g("colName")){const n=(prompt("اكتب اسمك (بيظهر في رسالتك للمدير)")||"").trim();if(n)LS.s("colName",n)}
+ const mN=un.length?await buildMsg(un):"",mA=entries.length?await buildMsg(entries):"";if(view!=="mine")return;
  $("app").innerHTML=`<button class="gr" onclick="history.back()">← القائمة</button><div class="card"><b>تحصيلاتي</b><div class="row"><span>لسه ما اتبعتتش (${un.length})</span><b class="gn">${fmt(tu)}</b></div><div class="row"><span>الإجمالي</span><b>${fmt(ta)}</b></div>
- <div class="g"><button onclick="send(false)">📤 إرسال الجديد</button><button class="alt" onclick="send(true)">📤 إرسال الكل</button></div><div class="mut" style="margin-top:8px">بيفتح واتساب برسالة جاهزة، اضغط إرسال هناك.</div></div>`+
+ <div class="g">${un.length?`<a class="btn" href="${waLink(mN)}" onclick="markSent(false)">📤 إرسال الجديد</a>`:`<button class="gr" onclick="toast('مفيش تحصيلات جديدة')">📤 إرسال الجديد</button>`}${entries.length?`<a class="btn alt" href="${waLink(mA)}" onclick="markSent(true)">📤 إرسال الكل</a>`:`<button class="gr" onclick="toast('مفيش تحصيلات متسجلة')">📤 إرسال الكل</button>`}</div><div class="mut" style="margin-top:8px">بيفتح واتساب برسالة جاهزة، اضغط إرسال هناك.</div></div>`+
  (L.length?L.map(x=>`<div class="card"><div class="row" style="border:0"><b>${x.e.n}</b><span class="gn">${fmt(x.e.a)}</span></div><div class="mut">${dstr(fromSerial(x.e.d))}${x.e.t?" · "+x.e.t:""} · ${snap&&snap.i&&snap.i.includes(x.e.id)?"✔ اترحّل":x.e.s?"✔ اتبعت":"لسه"} ${x.e.s?"":`<span style="float:left;cursor:pointer" onclick="del(${x.i})">🗑 حذف</span>`}</div></div>`).join(""):'<div class="card mut">مفيش تحصيلات متسجلة</div>')}
 function del(i){if(!confirm("حذف التحصيل ده؟"))return;entries.splice(i,1);save();mine()}
-async function send(all){const L=entries.filter(e=>all||!e.s);if(!L.length)return toast("مفيش تحصيلات تتبعت");
- let nm=LS.g("colName");if(!nm){nm=(prompt("اكتب اسمك")||"").trim();if(nm)LS.s("colName",nm)}
- const tok=await enc({v:1,c:nm,e:L.map(e=>[e.id,e.n,e.a,e.d,e.t])}),today=serial(new Date()),tot=L.reduce((t,e)=>t+e.a,0);
- const msg="تحصيلات"+(nm?" — "+nm:"")+" بتاريخ "+dstr(fromSerial(today))+"\n"+L.map((e,i)=>(i+1)+") "+e.n+": "+fmt(e.a)+(e.d!==today?" ("+dstr(fromSerial(e.d)).slice(0,5)+")":"")).join("\n")+"\nالإجمالي: "+fmt(tot)+"\n\n#DBT:"+tok;
- L.forEach(e=>e.s=1);save();location.href="https://wa.me/"+((snap&&snap.p)||"")+"?text="+encodeURIComponent(msg)}
+async function buildMsg(L){const nm=LS.g("colName")||"",tok=await enc({v:1,c:nm,e:L.map(e=>[e.id,e.n,e.a,e.d,e.t])}),today=serial(new Date()),tot=L.reduce((t,e)=>t+e.a,0);
+ return "تحصيلات"+(nm?" — "+nm:"")+" بتاريخ "+dstr(fromSerial(today))+"\n"+L.map((e,i)=>(i+1)+") "+e.n+": "+fmt(e.a)+(e.d!==today?" ("+dstr(fromSerial(e.d)).slice(0,5)+")":"")).join("\n")+"\nالإجمالي: "+fmt(tot)+"\n\n#DBT:"+tok}
+const waLink=m=>"https://wa.me/"+((snap&&snap.p)||"")+"?text="+encodeURIComponent(m);
+function markSent(all){entries.forEach(e=>{if(all||!e.s)e.s=1});save()}
 window.addEventListener("popstate",e=>{const v=e.state&&e.state.v;v==="mine"?mine():render()});
 (async()=>{const hk=location.hash.match(/k=([A-Za-z0-9_-]{40,})/),m=location.hash.match(/d=([pz]\.[A-Za-z0-9_-]+)/);
  if(hk){if(LS.g("colKey")!==hk[1])LS.s("colLive","");key=hk[1];LS.s("colKey",key)}else if(!m)key=LS.g("colKey");
  try{if(key){const c=LS.g("colLive");if(c)snap=JSON.parse(c)}else if(m){snap=await dec(m[1]);LS.s("colSnap",m[1])}else{const t=LS.g("colSnap");if(t)snap=await dec(t)}}catch(e){snap=null}
  try{history.replaceState({v:"list"},"")}catch(e){}render();if(key)refresh(true);
- document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()})})();
+ document.addEventListener("visibilitychange",()=>{if(!document.hidden){refresh();if(view==="mine")mine()}})})();
 </script></body></html>

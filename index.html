@@ -335,10 +335,10 @@ async function snapId(k){return b64u(new Uint8Array(await crypto.subtle.digest("
 const keyCell=()=>colL(LAY.act+8)+"1";
 async function getKey(fresh){let k="";if(!fresh){try{k=String((await g(rng(keyCell())+"?$select=values")).values[0][0]||"")}catch(e){}}
  if(k.length<40){const u=new Uint8Array(32);crypto.getRandomValues(u);k=b64u(u);await put(keyCell(),[[k]])}return k}
-const pubSig=()=>JSON.stringify([customers.map(c=>[c.n,stat(c).rest]),ownerPhone()]);
+const pubSig=()=>JSON.stringify([customers.map(c=>[c.n,stat(c).rest,c.dn||0]),ownerPhone()]);
 let lastSig=(()=>{try{return localStorage.getItem("pubSig")||""}catch(e){return""}})(),pubT=null,pubMsg="",lastPub=0,lkURL="";
 async function publishSnap(force){if(!ghTok())return;const sg=pubSig();if(!force&&sg===lastSig)return;
- const k=await getKey(),rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),imp=[...await importedIds()].slice(-400);
+ const k=await getKey(),rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0,c.dn||0]).filter(x=>x[2]>0),imp=[...await importedIds()].slice(-400);
  const enc=await encJSON({v:1,g:serial(new Date()),t:Date.now(),p:ownerPhone(),r:rows,i:imp},k),path="/contents/snap/"+await snapId(k)+".json";
  await ensureBranch();let sha;try{sha=(await gh(path+"?ref="+GH.b)).sha}catch(e){if(e.status!==404)throw e}
  await gh(path,{method:"PUT",body:JSON.stringify({message:"snapshot",branch:GH.b,content:btoa(JSON.stringify(enc)),...(sha?{sha}:{})})});
@@ -363,7 +363,7 @@ async function lkReset(){if(!confirm("هيتعمل رابط جديد والرا�
  try{const oid=await snapId(await getKey()),path="/contents/snap/"+oid+".json";await getKey(true);
   try{const f=await gh(path+"?ref="+GH.b);await gh(path,{method:"DELETE",body:JSON.stringify({message:"revoke",branch:GH.b,sha:f.sha})})}catch(e){}
   await publishSnap(true);toast("اتعمل رابط جديد ✔");linkPage()}catch(e){toast("خطأ: "+(e.message||e))}}
-async function lkTemp(){const rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0]).filter(x=>x[2]>0),g0=serial(new Date());
+async function lkTemp(){const rows=customers.map(c=>[c.n,c.a||"",stat(c).rest,c.ds||0,c.dn||0]).filter(x=>x[2]>0),g0=serial(new Date());
  lkURL=new URL("collector.html",location.href).href+"#d="+await encTok({v:1,g:g0,x:g0+7,p:ownerPhone(),r:rows});if($("lkU"))$("lkU").value=lkURL;toast("رابط مؤقت لمدة 7 أيام")}
 async function lkShare(){if(!lkURL)return toast("الرابط لسه بيتجهز");try{if(navigator.share)await navigator.share({title:"قائمة التحصيل",text:"رابط قائمة العملاء لتسجيل التحصيل:",url:lkURL});else lkCopy()}catch(e){}}
 async function lkCopy(){if(!lkURL)return toast("الرابط لسه بيتجهز");try{await navigator.clipboard.writeText(lkURL);toast("اتنسخ الرابط ✔")}catch(e){$("lkU").select();toast("حدّد النص وانسخه")}}
