@@ -115,10 +115,15 @@ function render(){curV="home";const sm=monthOf(dateCols[0]),now=monthOf(serial(n
  <div class="card tile" onclick="closeMonth()"><b>📅 إقفال الشهر</b><span class="mut">${sm?sm.m+"/"+sm.y:""}</span></div>
  <div class="card tile" onclick="hp('link');linkPage()"><b>🔗 رابط المحصّل</b><span class="mut">للاطلاع فقط</span></div>
  <div class="card tile" onclick="hp('import');importPage()"><b>📥 ترحيل تحصيلات المحصّل</b><span class="mut">من واتساب</span></div>`}
-function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
+function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="g"><input id="q" placeholder="ابحث باسم العميل" oninput="list()"><select id="af" onchange="setArea(this.value)"></select></div><div class="mut" id="lsum" style="margin:6px 2px"></div><div class="g"><select id="so" onchange="setSort(this.value)"><option value="due">ترتيب: تاريخ الاستحقاق</option><option value="name">ترتيب: أبجدي</option><option value="rest">ترتيب: الأكبر مديونية</option></select><button onclick="hp('add');addForm()">+ عميل جديد</button></div><div id="list" style="margin-top:10px"></div>`;$("so").value=sortBy;list()}
+let areaF=(()=>{try{return localStorage.getItem("areaF")||""}catch(e){return""}})();
+function setArea(v){areaF=v;try{localStorage.setItem("areaF",v)}catch(e){}list()}
 function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put(colL(LAY.act+8)+"2",[[v]]));list()}
 function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
- let a=customers.filter(c=>c.n.includes(q));
+ const ar=[...new Set(customers.map(c=>(c.a||"").trim()).filter(Boolean))].sort((x,y)=>nk(x).localeCompare(nk(y),"ar")),oh='<option value="">كل المناطق</option>'+ar.map(x=>`<option>${x}</option>`).join("")+(customers.some(c=>!(c.a||"").trim())?'<option value="__none">بدون منطقة</option>':""),af=$("af");
+ if(af){if(af.dataset.h!==oh){af.innerHTML=oh;af.dataset.h=oh}if(areaF&&areaF!=="__none"&&!ar.includes(areaF))areaF="";af.value=areaF}
+ let a=customers.filter(c=>c.n.includes(q)&&(!areaF||(areaF==="__none"?!(c.a||"").trim():(c.a||"").trim()===areaF)));
+ const sm=$("lsum");if(sm)sm.textContent=a.length+" عميل · إجمالي المتبقي "+fmt(a.reduce((t,c)=>t+stat(c).rest,0));
  if(sortBy==="name")a.sort((x,y)=>nk(x.n).localeCompare(nk(y.n),"ar",{numeric:true}));
  else if(sortBy==="rest")a.sort((x,y)=>stat(y).rest-stat(x).rest);
  else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
