@@ -56,6 +56,7 @@ function writeCol(ds){const sm=monthOf(dateCols[0]);
  return d.getUTCDate()-1}
 function bounds(){const sm=monthOf(dateCols[0]);if(!sm||!aligned())return null;const p=n=>String(n).padStart(2,"0");return{min:sm.y+"-"+p(sm.m)+"-01",max:sm.y+"-"+p(sm.m)+"-"+p(monthLen(sm.y,sm.m))}}
 let dirty=false;document.addEventListener("input",e=>{if(e.target.type!=="date")dirty=true});
+const nk=n=>String(n).trim().replace(/[\u064B-\u065F\u0670]/g,"").replace(/[أإآ]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي").replace(/\s+/g," ");
 let selDate=ymd(new Date()),sortBy=(()=>{try{return localStorage.getItem("sortBy")||"due"}catch(e){return"due"}})();
 function toast(t){const m=$("msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2500)}
 async function login(){try{await msalApp.loginRedirect({scopes:SCOPES})}catch(e){toast("خطأ: "+(e.message||e))}}
@@ -118,7 +119,7 @@ function custPage(){$("app").innerHTML=`<button class="gr" onclick="history.back
 function setSort(v){sortBy=v;try{localStorage.setItem("sortBy",v)}catch(e){}enqueue(()=>put(colL(LAY.act+8)+"2",[[v]]));list()}
 function list(){const el=$("list");if(!el)return;$("so").value=sortBy;const q=($("q")?.value||"").trim(),t=serial(new Date());
  let a=customers.filter(c=>c.n.includes(q));
- if(sortBy==="name")a.sort((x,y)=>x.n.replace(/^ال/,"").localeCompare(y.n.replace(/^ال/,""),"ar"));
+ if(sortBy==="name")a.sort((x,y)=>nk(x.n).localeCompare(nk(y.n),"ar",{numeric:true}));
  else if(sortBy==="rest")a.sort((x,y)=>stat(y).rest-stat(x).rest);
  else a.sort((x,y)=>(x.ds||1e9)-(y.ds||1e9));
  el.innerHTML=a.map(c=>{const s=stat(c),dl=c.ds-t;let cls="",tag="";
