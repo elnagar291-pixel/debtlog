@@ -11,7 +11,7 @@ main{padding:12px;max-width:600px;margin:auto}.card{background:var(--card);borde
 input,select,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
 button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{background:#b45309}button.gr{background:#667}
 .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd)}.cust{cursor:pointer}.red{color:var(--red);font-weight:bold}.mut{color:var(--mut);font-size:13px}
-.soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
+.soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.ok{background:#15803d}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
 .big{text-align:center}.num{font-size:26px;font-weight:bold}.gn{color:#15803d}.tile{display:flex;justify-content:space-between;align-items:center;font-size:18px;cursor:pointer}
 .sync{padding:5px 14px;font-size:13px;cursor:pointer;text-align:center}.sync.ok{background:rgba(21,128,61,.15);color:#15803d}.sync.wait{background:rgba(217,119,6,.18);color:#b45309}.sync.err{background:rgba(185,28,28,.15);color:#b91c1c}
 .ta{width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font:13px Arial}
@@ -374,8 +374,15 @@ async function lkShare(){if(!lkURL)return toast("الرابط لسه بيتجه�
 async function lkCopy(){if(!lkURL)return toast("الرابط لسه بيتجهز");try{await navigator.clipboard.writeText(lkURL);toast("اتنسخ الرابط ✔")}catch(e){$("lkU").select();toast("حدّد النص وانسخه")}}
 function colOf(ds){const sm=monthOf(dateCols[0]);if(!sm||!aligned())return -1;const d=fromSerial(ds);if(!d||d.getUTCFullYear()!==sm.y||d.getUTCMonth()+1!==sm.m)return -1;return d.getUTCDate()-1}
 let impRows=[],impWho="";
-function importPage(){curV="import";impRows=[];
- $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">📥 ترحيل تحصيلات المحصّل</h3><div class="mut">الصق رسالة الواتساب كاملة اللي بعتهالك المحصّل (بما فيها السطر اللي فيه #DBT)</div><textarea id="impT" class="ta" rows="7" placeholder="الصق الرسالة هنا"></textarea><button onclick="impRead()">قراءة الرسالة</button></div><div id="impOut"></div>`}
+function importPage(){curV="import";impRows=[];aiRows=[];const bn=bounds();
+ $("app").innerHTML=`<button class="gr" onclick="history.back()">← الرئيسية</button><div class="card"><h3 style="margin:0">📥 ترحيل تحصيلات المحصّل</h3><div class="mut">الصق رسالة الواتساب كاملة اللي بعتهالك المحصّل (بما فيها السطر اللي فيه #DBT)</div><textarea id="impT" class="ta" rows="7" placeholder="الصق الرسالة هنا"></textarea><button onclick="impRead()">قراءة الرسالة</button></div><div id="impOut"></div>
+ <div class="card"><h3 style="margin:0">📷 تحليل صورة واتساب (ذكاء صناعي)</h3>
+ <div class="mut">لو المحصّل بعت التحصيلات رسائل عادية: صوّر الشات واختار الصورة هنا. التطبيق يقرا الرسائل ويطابق الأسماء بقايمة عملائك ويقترح التحصيلات، وانت تراجع وتعدّل قبل الترحيل.</div>
+ <span class="mut">مفتاح Gemini (مجاني، مرة واحدة)</span><input type="password" placeholder="AIza..." value="${gemKey()}" onchange="saveGem(this.value)">
+ <div class="mut" style="line-height:1.7">aistudio.google.com/apikey ← Create API key ← انسخه والصقه هنا. اللي بيتبعت لجوجل: صورة الشات وأسماء العملاء ومناطقهم بس، من غير أي مديونيات.</div>
+ <span class="mut">صورة (أو أكتر) من الشات</span><input id="aiF" type="file" accept="image/*" multiple onchange="aiPick(this)"><div id="aiN" class="mut"></div>
+ <span class="mut">تاريخ التحصيل</span><input id="aiD" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}>
+ <button onclick="aiRun()">🔍 تحليل الصورة</button></div><div id="aiOut"></div>`}
 async function importedIds(){try{const r=await g("/worksheets('CollectorLog')/usedRange?$select=values");return new Set(r.values.slice(1).map(x=>String(x[0])))}catch(e){return new Set()}}
 async function impRead(){const m=($("impT").value||"").match(/#DBT:([pz]\.[A-Za-z0-9_-]+)/);if(!m)return toast("مش لاقي كود التحصيلات في الرسالة");
  try{const o=await decTok(m[1]),done=await importedIds();impWho=o.c||"";
@@ -392,6 +399,66 @@ function impCommit(){const ok=impRows.filter(r=>r.st==="ok");if(!ok.length)retur
  const who=impWho,td=dstr(fromSerial(serial(new Date()))),rows=ok.map(r=>[r.id,dstr(fromSerial(r.d)),r.n,r.a,who,td]);
  enqueue(()=>sheetAppend("CollectorLog",["رقم الحركة","تاريخ التحصيل","العميل","المبلغ","المحصّل","تاريخ الترحيل"],rows,["@","@","@","General","@","@"]));
  toast("اترحّل "+ok.length+" تحصيل ✔");history.back()}
+// ===== تحليل صورة واتساب بالذكاء الصناعي (Gemini) =====
+const gemKey=()=>{try{return localStorage.getItem("gemKey")||""}catch(e){return""}};
+function saveGem(v){try{localStorage.setItem("gemKey",v.trim())}catch(e){}toast("اتحفظ المفتاح ✔")}
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let aiImgs=[],aiRows=[],aiTotal=null,aiHash="";
+function hash32(t){let h=0;for(let i=0;i<t.length;i+=7)h=(h*31+t.charCodeAt(i))|0;return(h>>>0).toString(36)}
+function shrink(f){return new Promise((ok,no)=>{const u=URL.createObjectURL(f),im=new Image();
+ im.onload=()=>{const r=Math.min(1,2000/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*r);c.height=Math.round(im.height*r);c.getContext("2d").drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);ok(c.toDataURL("image/jpeg",0.85).split(",")[1])};
+ im.onerror=()=>no(new Error("تعذر قراءة الصورة"));im.src=u})}
+async function aiPick(inp){aiImgs=[];try{for(const f of[...inp.files].slice(0,4))aiImgs.push(await shrink(f))}catch(e){return toast(e.message)}
+ aiHash=hash32(aiImgs.join(""));$("aiN").textContent=aiImgs.length?"تم اختيار "+aiImgs.length+" صورة ✔":""}
+const GEM_MODELS=["gemini-2.5-flash","gemini-flash-latest","gemini-2.0-flash"];
+async function gemCall(prompt,imgs){let last;
+ for(const m of GEM_MODELS){
+  const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+m+":generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":gemKey()},
+   body:JSON.stringify({contents:[{parts:[{text:prompt},...imgs.map(d=>({inline_data:{mime_type:"image/jpeg",data:d}}))]}],generationConfig:{temperature:0,responseMimeType:"application/json"}})});
+  if(r.status===404){last=new Error("الموديل "+m+" مش متاح");continue}
+  if(!r.ok){const t=await r.text();throw new Error(r.status===429?"عدّيت الحد المجاني، جرّب بعد شوية":(r.status===400||r.status===403)&&/API key|permission/i.test(t)?"مفتاح Gemini غلط أو مش شغال":"خطأ من Gemini ("+r.status+")")}
+  const j=await r.json(),t=((j.candidates||[])[0]||{}).content;const txt=t&&t.parts?t.parts.map(p=>p.text||"").join(""):"";
+  if(!txt)throw new Error("الرد جه فاضي، جرّب تاني");
+  try{return JSON.parse(txt.replace(/^\s*```(?:json)?|```\s*$/g,"").trim())}catch(e){throw new Error("الرد مش مفهوم، جرّب تاني")}}
+ throw last||new Error("مفيش موديل متاح")}
+function aiBuild(j){aiTotal=typeof j.total==="number"?j.total:null;
+ aiRows=(j.items||[]).map((it,i)=>{const c=it.customer?customers.find(x=>nk(x.n)===nk(it.customer)):null;
+  let a=typeof it.amount==="number"?it.amount:parseFloat(String(it.amount||"").replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)))||0;
+  if(c&&it.full&&!(a>0))a=stat(c).rest;
+  return{i,text:String(it.text||""),status:it.status||"other",note:String(it.note||""),row:c?c.row:0,a,on:!!(it.status==="paid"&&c&&a>0)}})}
+async function aiRun(){if(!gemKey())return toast("اكتب مفتاح Gemini الأول");if(!aiImgs.length)return toast("اختار صورة الأول");
+ $("aiOut").innerHTML='<div class="card">⏳ جاري تحليل الصورة...</div>';
+ const names=customers.map((c,i)=>(i+1)+". "+c.n+(c.a?" — "+c.a:"")).join("\n");
+ const prompt=`دي صور محادثة واتساب من محصّل بيبلغ مديره بتحصيلات من عملاء. قايمة العملاء الرسمية:
+${names}
+
+استخرج كل سطر بيخص عميل، وسطر الإجمالي لو موجود. القواعد:
+- customer: لازم يكون اسم من القايمة بالظبط (انسخه زي ما هو) أو null لو مفيش تطابق واضح. الأسماء ممكن تكون مكتوبة بإملاء مختلف أو مختصرة.
+- amount: رقم المبلغ المحصّل (حوّل الأرقام العربية ١٢٣ لأرقام إنجليزي)، أو null لو مش مكتوب.
+- full: true لو مكتوب إنه "خالص" أو سدد كامل ومفيش مبلغ مكتوب.
+- status: "paid" لو اتحصّل فلوس فعلًا، "promise" لو العميل هيدفع بعدين (السبت، غدا، بعد شهر...)، "refused" لو رفض أو مش هيدفع، "other" لأي سطر تاني.
+- text: نص السطر الأصلي زي ما هو.
+- note: ملاحظة قصيرة لو فيه لبس.
+- total: الإجمالي المكتوب في الشات كرقم، وإلا null.
+رجّع JSON بس بالشكل: {"total":null,"items":[{"text":"","customer":null,"amount":null,"full":false,"status":"paid","note":""}]}`;
+ try{aiBuild(await gemCall(prompt,aiImgs));aiShow()}catch(e){$("aiOut").innerHTML='<div class="card red">'+esc(e.message||e)+'</div>'}}
+function aiShow(){const T={paid:["تحصيل","ok"],promise:["وعد بالدفع","o"],refused:["رفض","r"],other:["مش تحصيل","r"]};
+ const opts=r=>'<option value="0">— اختار العميل —</option>'+customers.map(c=>`<option value="${c.row}"${c.row===r?" selected":""}>${esc(c.n)}</option>`).join("");
+ $("aiOut").innerHTML=`<div class="card"><b>نتيجة التحليل (${aiRows.length} سطر)</b><div class="mut">علّم على اللي عايز تسجّله، وعدّل العميل أو المبلغ لو محتاج.</div></div>`+
+ aiRows.map(r=>{const t=T[r.status]||T.other;return `<div class="card"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:22px;height:22px;margin:0" ${r.on?"checked":""} onchange="aiRows[${r.i}].on=this.checked;aiSum()"><span class="tag ${t[1]}">${t[0]}</span></label>
+  <div class="mut" style="margin:6px 0">«${esc(r.text)}»${r.note?" — "+esc(r.note):""}</div>
+  <select onchange="aiRows[${r.i}].row=+this.value;aiSum()">${opts(r.row)}</select>
+  <input type="number" inputmode="decimal" value="${r.a||""}" placeholder="المبلغ" onchange="aiRows[${r.i}].a=parseFloat(this.value)||0;aiSum()"></div>`}).join("")+
+ `<div class="card"><div id="aiS"></div><button onclick="aiCommit()">✅ ترحيل المحدد</button></div>`;aiSum()}
+function aiSum(){const sel=aiRows.filter(r=>r.on&&r.row&&r.a>0),tot=sel.reduce((t,r)=>t+r.a,0);
+ const chk=aiTotal==null?"":Math.abs(aiTotal-tot)<0.5?`<div class="gn">✔ يطابق إجمالي الصورة (${fmt(aiTotal)})</div>`:`<div class="red">⚠ إجمالي الصورة ${fmt(aiTotal)} والمحدد ${fmt(tot)}</div>`;
+ const big=sel.filter(r=>{const c=customers.find(x=>x.row===r.row);return c&&r.a>stat(c).rest}).length;
+ $("aiS").innerHTML=`<div class="row"><span>المحدد للترحيل</span><b>${sel.length} تحصيل · ${fmt(tot)}</b></div>${chk}${big?`<div class="red">⚠ ${big} مبلغ أكبر من المتبقي على العميل</div>`:""}`}
+async function aiCommit(){const ds=serialY($("aiD").value||ymd(new Date())),k=colOf(ds);if(k<0)return toast("التاريخ برة شهر الشيت الحالي");
+ const sel=aiRows.filter(r=>r.on&&r.row&&r.a>0);if(!sel.length)return toast("مفيش تحصيل متحدد");
+ try{const done=await importedIds(),rows=sel.map(r=>{const c=customers.find(x=>x.row===r.row);return{id:"ai"+aiHash+"-"+r.row+"-"+Math.round(r.a*100),n:c.n,a:+r.a,d:ds,c,k,st:"ok"}}).filter(r=>!done.has(r.id));
+  if(!rows.length)return toast("التحصيلات دي اتحوّلت قبل كده");
+  impRows=rows;impWho="تحليل صورة واتساب";impCommit()}catch(e){toast("خطأ: "+(e.message||e))}}
 // تحديث تلقائي: كل دقيقة، ولما ترجع للتطبيق
 async function autoRefresh(){if(document.hidden||pend>0||dirty||!msalApp||!msalApp.getAllAccounts().length)return;
  const t=document.activeElement&&document.activeElement.tagName;if(t==="INPUT"||t==="SELECT")return;
