@@ -386,7 +386,9 @@ function importPage(){curV="import";impRows=[];aiRows=[];const bn=bounds();
  <div class="mut" style="line-height:1.7">aistudio.google.com/apikey ← Create API key ← انسخه والصقه هنا. اللي بيتبعت لجوجل: صورة الشات وأسماء العملاء ومناطقهم بس، من غير أي مديونيات.</div>
  <span class="mut">صورة (أو أكتر) من الشات</span><input id="aiF" type="file" accept="image/*" multiple onchange="aiPick(this)"><div id="aiN" class="mut"></div>
  <span class="mut">تاريخ التحصيل</span><input id="aiD" type="date" value="${bn?(selDate<bn.min?bn.min:selDate>bn.max?bn.max:selDate):selDate}"${bn?` min="${bn.min}" max="${bn.max}"`:""}>
- <button onclick="aiRun()">🔍 تحليل الصورة</button></div><div id="aiOut"></div>`}
+ <button onclick="aiRun()">🔍 تحليل الصورة</button>
+ <div class="mut" style="margin-top:14px;line-height:1.7">أو من غير ذكاء صناعي ولا إنترنت: انسخ نص الرسائل من واتساب (اضغط مطولًا على الرسالة ← حدّد الباقي ← أيقونة النسخ) والصقه هنا:</div>
+ <textarea id="aiT" class="ta" rows="5" placeholder="الصق نص الرسائل هنا"></textarea><button class="alt" onclick="txtRun()">📝 تحليل النص</button></div><div id="aiOut"></div>`}
 async function importedIds(){try{const r=await g("/worksheets('CollectorLog')/usedRange?$select=values");return new Set(r.values.slice(1).map(x=>String(x[0])))}catch(e){return new Set()}}
 async function impRead(){const m=($("impT").value||"").match(/#DBT:([pz]\.[A-Za-z0-9_-]+)/);if(!m)return toast("مش لاقي كود التحصيلات في الرسالة");
  try{const o=await decTok(m[1]),done=await importedIds();impWho=o.c||"";
@@ -417,8 +419,8 @@ async function aiPick(inp){aiImgs=[];try{for(const f of[...inp.files].slice(0,4)
 const GEM_MODELS=["gemini-2.5-flash","gemini-2.5-flash-lite","gemini-flash-latest","gemini-2.0-flash"];
 const RETRY_ST=[404,429,500,502,503,504],wait=ms=>new Promise(r=>setTimeout(r,ms));
 async function gemCall(prompt,imgs){let lastSt=0;const body=JSON.stringify({contents:[{parts:[{text:prompt},...imgs.map(d=>({inline_data:{mime_type:"image/jpeg",data:d}}))]}],generationConfig:{temperature:0,responseMimeType:"application/json"}});
- for(let round=0;round<2;round++){
-  if(round)await wait(3000);
+ for(let round=0;round<3;round++){
+  if(round)await wait(4000*round);
   for(const m of GEM_MODELS){
    const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+m+":generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":gemKey()},body});
    if(RETRY_ST.includes(r.status)){lastSt=r.status===404&&lastSt?lastSt:r.status;continue}   // مشغول أو مش متاح: جرّب الموديل اللي بعده
@@ -427,13 +429,42 @@ async function gemCall(prompt,imgs){let lastSt=0;const body=JSON.stringify({cont
    if(!txt)throw new Error("الرد جه فاضي، جرّب تاني");
    try{return JSON.parse(txt.replace(/^\s*```(?:json)?|```\s*$/g,"").trim())}catch(e){throw new Error("الرد مش مفهوم، جرّب تاني")}}}
  throw new Error(lastSt===429?"عدّيت الحد المجاني، جرّب بعد شوية":lastSt===404?"مفيش موديل متاح على مفتاحك":"سيرفر جوجل مشغول دلوقتي، جرّب تاني بعد دقيقة")}
+// ===== تحليل نص منسوخ بدون ذكاء صناعي =====
+const ad=t=>String(t).replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[\u200e\u200f\u202a-\u202e]/g,"");
+const wk=w=>{w=nk(w).replace(/[^\u0621-\u064Aa-z0-9]/gi,"");return w.length>3?w.replace(/^ال/,""):w};
+function lev(a,b){const m=[];for(let i=0;i<=a.length;i++){m[i]=[i];for(let j=1;j<=b.length;j++)m[i][j]=i?0:j}
+ for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return m[a.length][b.length]}
+const sameTok=(a,b)=>a===b||(a.length>=4&&b.length>=4&&lev(a,b)<=1);
+function txtMatch(words){const lt=words.map(wk).filter(w=>w&&!/^\d+$/.test(w));let best=null;
+ for(const c of customers){const ct=nk(c.n).split(/\s+/).map(wk).filter(w=>w&&!/^\d+$/.test(w));if(!ct.length)continue;
+  let m=0;while(m<ct.length&&m<lt.length&&sameTok(ct[m],lt[m]))m++;
+  const sc=m/ct.length,hasDigit=/\d/.test(c.n),key=[sc,m,hasDigit?0:1];
+  if(m&&(!best||key[0]>best.key[0]||(key[0]===best.key[0]&&(key[1]>best.key[1]||(key[1]===best.key[1]&&key[2]>best.key[2])))))best={c,key,sc}}
+ return best}
+function txtParse(text){const items=[];let total=null;
+ for(let raw of ad(text).split(/\r?\n/)){let l=raw.trim();if(!l)continue;
+  l=l.replace(/^\[[^\]]*\]\s*[^:]{0,40}:\s*/,"").replace(/^\d{1,2}\/\d{1,2}\/\d{2,4}[,،]?\s*\d{1,2}:\d{2}\s*(?:[ap]m|ص|م)?\s*[-–]\s*[^:]{0,40}:\s*/i,"").trim();if(!l)continue;
+  const n0=nk(l),tm=n0.match(/^(الاجمالي|اجمالي|المجموع|مجموع)\D*(\d[\d,]*)/);if(tm){total=+tm[2].replace(/,/g,"");continue}
+  const nums=[...l.matchAll(/\d[\d,]*(?:\.\d+)?/g)].map(m=>+m[0].replace(/,/g,"")).filter(x=>x>=20),amount=nums.length?nums[nums.length-1]:null;
+  const words=l.replace(/[\d,.،:؛؟!"'()\-–_]/g," ").split(/\s+/).filter(Boolean),mt=txtMatch(words);
+  const full=/خالص|سدد|كامل|ساد/.test(l),refused=/مش هيدفع|مش عايز يدفع|رفض|مرفوض|مش هيسدد/.test(l),promise=/السبت|الاحد|الأحد|الاثنين|الإثنين|الثلاثاء|الاربعاء|الأربعاء|الخميس|الجمعه|الجمعة|غدا|غدًا|بكرة|بكره|بعد |لسه|هيشوف|هيدفع|الاسبوع|الأسبوع|الشهر|اسبوع/.test(l);
+  let status="other",note="";
+  if(refused)status="refused";
+  else if(amount&&!/هيدفع|بكرة|بكره|غدا|غدًا/.test(l))status="paid";
+  else if(promise)status="promise";
+  else if(full&&mt)status="paid";
+  if(mt&&mt.sc<1)note="مطابقة تقريبية، راجع الاسم";
+  if(mt&&status==="paid"&&mt.sc===1&&customers.some(c=>c!==mt.c&&nk(c.n).replace(/[\d\s]+$/,"")===nk(mt.c.n).replace(/[\d\s]+$/,"")))note="في اسم مشابه، راجع";
+  items.push({text:l,customer:mt?mt.c.n:null,amount:status==="paid"?amount:null,full:status==="paid"&&!amount,status,note})}
+ return{total,items}}
+function txtRun(){const t=($("aiT").value||"").trim();if(!t)return toast("الصق نص الرسائل الأول");aiHash=hash32(t);aiBuild(txtParse(t));aiShow()}
 function aiBuild(j){aiTotal=typeof j.total==="number"?j.total:null;
  aiRows=(j.items||[]).map((it,i)=>{const c=it.customer?customers.find(x=>nk(x.n)===nk(it.customer)):null;
   let a=typeof it.amount==="number"?it.amount:parseFloat(String(it.amount||"").replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)))||0;
   if(c&&it.full&&!(a>0))a=stat(c).rest;
   return{i,text:String(it.text||""),status:it.status||"other",note:String(it.note||""),row:c?c.row:0,a,on:!!(it.status==="paid"&&c&&a>0)}})}
 async function aiRun(){if(!gemKey())return toast("اكتب مفتاح Gemini الأول");if(!aiImgs.length)return toast("اختار صورة الأول");
- $("aiOut").innerHTML='<div class="card">⏳ جاري تحليل الصورة...</div>';
+ $("aiOut").innerHTML='<div class="card">⏳ جاري تحليل الصورة... (لو جوجل مشغول ممكن ياخد لحد دقيقة)</div>';
  const names=customers.map((c,i)=>(i+1)+". "+c.n+(c.a?" — "+c.a:"")).join("\n");
  const prompt=`دي صور محادثة واتساب من محصّل بيبلغ مديره بتحصيلات من عملاء. قايمة العملاء الرسمية:
 ${names}
