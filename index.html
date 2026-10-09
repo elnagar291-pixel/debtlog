@@ -410,17 +410,19 @@ function shrink(f){return new Promise((ok,no)=>{const u=URL.createObjectURL(f),i
  im.onerror=()=>no(new Error("تعذر قراءة الصورة"));im.src=u})}
 async function aiPick(inp){aiImgs=[];try{for(const f of[...inp.files].slice(0,4))aiImgs.push(await shrink(f))}catch(e){return toast(e.message)}
  aiHash=hash32(aiImgs.join(""));$("aiN").textContent=aiImgs.length?"تم اختيار "+aiImgs.length+" صورة ✔":""}
-const GEM_MODELS=["gemini-2.5-flash","gemini-flash-latest","gemini-2.0-flash"];
-async function gemCall(prompt,imgs){let last;
- for(const m of GEM_MODELS){
-  const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+m+":generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":gemKey()},
-   body:JSON.stringify({contents:[{parts:[{text:prompt},...imgs.map(d=>({inline_data:{mime_type:"image/jpeg",data:d}}))]}],generationConfig:{temperature:0,responseMimeType:"application/json"}})});
-  if(r.status===404){last=new Error("الموديل "+m+" مش متاح");continue}
-  if(!r.ok){const t=await r.text();throw new Error(r.status===429?"عدّيت الحد المجاني، جرّب بعد شوية":(r.status===400||r.status===403)&&/API key|permission/i.test(t)?"مفتاح Gemini غلط أو مش شغال":"خطأ من Gemini ("+r.status+")")}
-  const j=await r.json(),t=((j.candidates||[])[0]||{}).content;const txt=t&&t.parts?t.parts.map(p=>p.text||"").join(""):"";
-  if(!txt)throw new Error("الرد جه فاضي، جرّب تاني");
-  try{return JSON.parse(txt.replace(/^\s*```(?:json)?|```\s*$/g,"").trim())}catch(e){throw new Error("الرد مش مفهوم، جرّب تاني")}}
- throw last||new Error("مفيش موديل متاح")}
+const GEM_MODELS=["gemini-2.5-flash","gemini-2.5-flash-lite","gemini-flash-latest","gemini-2.0-flash"];
+const RETRY_ST=[404,429,500,502,503,504],wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function gemCall(prompt,imgs){let lastSt=0;const body=JSON.stringify({contents:[{parts:[{text:prompt},...imgs.map(d=>({inline_data:{mime_type:"image/jpeg",data:d}}))]}],generationConfig:{temperature:0,responseMimeType:"application/json"}});
+ for(let round=0;round<2;round++){
+  if(round)await wait(3000);
+  for(const m of GEM_MODELS){
+   const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+m+":generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":gemKey()},body});
+   if(RETRY_ST.includes(r.status)){lastSt=r.status===404&&lastSt?lastSt:r.status;continue}   // مشغول أو مش متاح: جرّب الموديل اللي بعده
+   if(!r.ok){const t=await r.text();throw new Error((r.status===400||r.status===403)&&/API key|permission/i.test(t)?"مفتاح Gemini غلط أو مش شغال":"خطأ من Gemini ("+r.status+")")}
+   const j=await r.json(),c=((j.candidates||[])[0]||{}).content,txt=c&&c.parts?c.parts.map(p=>p.text||"").join(""):"";
+   if(!txt)throw new Error("الرد جه فاضي، جرّب تاني");
+   try{return JSON.parse(txt.replace(/^\s*```(?:json)?|```\s*$/g,"").trim())}catch(e){throw new Error("الرد مش مفهوم، جرّب تاني")}}}
+ throw new Error(lastSt===429?"عدّيت الحد المجاني، جرّب بعد شوية":lastSt===404?"مفيش موديل متاح على مفتاحك":"سيرفر جوجل مشغول دلوقتي، جرّب تاني بعد دقيقة")}
 function aiBuild(j){aiTotal=typeof j.total==="number"?j.total:null;
  aiRows=(j.items||[]).map((it,i)=>{const c=it.customer?customers.find(x=>nk(x.n)===nk(it.customer)):null;
   let a=typeof it.amount==="number"?it.amount:parseFloat(String(it.amount||"").replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)))||0;
