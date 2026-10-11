@@ -3,18 +3,18 @@
 <link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="theme-color" content="#0f766e">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <style>
-:root{--bg:#f4f6f8;--card:#fff;--tx:#111;--mut:#667;--pr:#0f766e;--red:#b91c1c;--bd:#dde}
-@media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1c2127;--tx:#eee;--mut:#9ab;--bd:#334}}
+:root{--bg:#f4f6f8;--card:#e7f3f0;--inp:#fff;--cb:#b4d3cb;--tx:#111;--mut:#667;--pr:#0f766e;--red:#b91c1c;--bd:#dde}
+@media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1c2127;--inp:#12161b;--cb:#334;--tx:#eee;--mut:#9ab;--bd:#334}}
 *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--tx);padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 header{background:var(--pr);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
-main{padding:12px;max-width:600px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
-input,select,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
+main{padding:12px;max-width:600px;margin:auto}.card{background:var(--card);border:1px solid var(--cb);box-shadow:0 1px 3px rgba(0,0,0,.08);border-radius:12px;padding:12px;margin-bottom:10px}
+input,select,button{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--inp);color:var(--tx);margin-top:8px}
 button{background:var(--pr);color:#fff;border:0;font-weight:bold}button.alt{background:#b45309}button.gr{background:#667}
-.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bd)}.cust{cursor:pointer}.red{color:var(--red);font-weight:bold}.mut{color:var(--mut);font-size:13px}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cb)}.cust{cursor:pointer}.red{color:var(--red);font-weight:bold}.mut{color:var(--mut);font-size:13px}
 .soon{border:2px solid #d97706;background:rgba(217,119,6,.12)}.late{border:2px solid #b91c1c;background:rgba(185,28,28,.10)}.tag{font-size:12px;padding:2px 8px;border-radius:8px;color:#fff}.tag.ok{background:#15803d}.tag.o{background:#d97706}.tag.r{background:#b91c1c}
 .big{text-align:center}.num{font-size:26px;font-weight:bold}.gn{color:#15803d}.tile{display:flex;justify-content:space-between;align-items:center;font-size:18px;cursor:pointer}
 .sync{padding:5px 14px;font-size:13px;cursor:pointer;text-align:center}.sync.ok{background:rgba(21,128,61,.15);color:#15803d}.sync.wait{background:rgba(217,119,6,.18);color:#b45309}.sync.err{background:rgba(185,28,28,.15);color:#b91c1c}
-.ta{width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font:13px Arial}
+.ta{width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--inp);color:var(--tx);font:13px Arial}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px}#msg{position:fixed;bottom:16px;left:16px;right:16px;background:#111;color:#fff;padding:12px;border-radius:10px;display:none;text-align:center}
 </style></head><body>
 <header><b onclick="home()" style="cursor:pointer">متابعة المديونية</b><span id="today" class="mut" style="color:#fff"></span></header><div id="sync" class="sync" onclick="show(curV,true)"></div>
